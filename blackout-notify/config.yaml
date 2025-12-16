@@ -62,8 +62,9 @@ schema:
 # Minimum Home Assistant version
 homeassistant: "2024.1.0"
 
-# Build image
-image: "ghcr.io/pahanium/ha-blackout-notify-{arch}"
+# Build image - commented out for local builds
+# Uncomment when CI/CD publishes images to ghcr.io
+# image: "ghcr.io/pahanium/ha-blackout-notify-{arch}"
 
 # Mappings
 map:
