@@ -1,5 +1,5 @@
 # Home Assistant Add-on Configuration
-# Документація: https://developers.home-assistant.io/docs/add-ons/configuration
+# Documentation: https://developers.home-assistant.io/docs/add-ons/configuration
 
 name: "Telegram Bot"
 version: "0.1.0"
@@ -7,49 +7,64 @@ slug: "telegram_bot"
 description: "Telegram bot for controlling Home Assistant and receiving notifications"
 url: "https://github.com/yourusername/haaddon/tree/main/telegram-bot"
 
-# Підтримувані архітектури
+# Supported architectures
 arch:
   - amd64
   - aarch64
   - armv7
 
-# Запуск при старті HA
+# Start at HA boot
 startup: services
 boot: auto
 
-# Доступ до Home Assistant API (обов'язково для роботи з entities)
+# Access to Home Assistant API (required for working with entities)
 homeassistant_api: true
 
-# Мережеві порти (опціонально, якщо потрібен веб-інтерфейс)
+# Network ports (optional, if web interface is needed)
 # ports:
 #   "8080/tcp": 8080
 # ports_description:
 #   "8080/tcp": "Web interface"
 
-# Змінні оточення, що передаються в контейнер
-# SUPERVISOR_TOKEN передається автоматично при homeassistant_api: true
+# Environment variables passed to container
+# SUPERVISOR_TOKEN is passed automatically when homeassistant_api: true
 
-# Опції, які користувач може налаштувати в UI
+# Options that user can configure in UI
 options:
   telegram_token: ""
   allowed_chat_ids: []
   log_level: "info"
   polling_interval: 30
+  # Power monitoring settings
+  notification_chat_ids: []
+  watched_entity_id: ""
+  next_on_sensor_id: ""
+  next_off_sensor_id: ""
+  pause_entity_id: "input_boolean.pause_power_notifications"
+  timezone: "Europe/Kyiv"
 
-# Схема валідації опцій
+# Options validation schema
 schema:
   telegram_token: str
   allowed_chat_ids:
     - int
   log_level: list(debug|info|warn|error)
   polling_interval: int(10,300)
+  # Power monitoring schema
+  notification_chat_ids:
+    - int
+  watched_entity_id: str?
+  next_on_sensor_id: str?
+  next_off_sensor_id: str?
+  pause_entity_id: str?
+  timezone: str?
 
-# Мінімальна версія Home Assistant
+# Minimum Home Assistant version
 homeassistant: "2024.1.0"
 
-# Образ для збірки
+# Build image
 image: "ghcr.io/yourusername/haaddon-telegram-bot-{arch}"
 
-# Мітки
+# Mappings
 map:
   - config:ro

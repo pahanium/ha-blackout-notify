@@ -10,6 +10,8 @@ import (
 	"github.com/yourusername/haaddon/telegram-bot/internal/config"
 	"github.com/yourusername/haaddon/telegram-bot/internal/homeassistant"
 	"github.com/yourusername/haaddon/telegram-bot/internal/logger"
+	"github.com/yourusername/haaddon/telegram-bot/internal/notifications"
+	"github.com/yourusername/haaddon/telegram-bot/internal/watcher"
 )
 
 func main() {
@@ -28,7 +30,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Initialize Home Assistant client
+	// Initialize Home Assistant REST client
 	haClient := homeassistant.NewClient(cfg.HAApiURL, cfg.HAToken)
 
 	// Check connection to Home Assistant
@@ -47,7 +49,7 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// Start bot in a separate goroutine
+	// Start Telegram bot command handler in a separate goroutine
 	go func() {
 		if err := telegramBot.Start(ctx); err != nil {
 			logger.Error("Bot error: %v", err)
@@ -55,14 +57,49 @@ func main() {
 		}
 	}()
 
+	// Initialize power monitoring if configured
+	var powerWatcher *watcher.Watcher
+	if cfg.IsPowerMonitoringEnabled() {
+		logger.Info("Power monitoring enabled for entity: %s", cfg.WatchedEntityID)
+
+		// Initialize WebSocket client for real-time events
+		wsClient := homeassistant.NewWSClient(cfg.HAApiURL, cfg.HAToken)
+
+		// Initialize notification service
+		notifSvc, err := notifications.NewService(telegramBot.GetAPI(), cfg, haClient)
+		if err != nil {
+			logger.Fatal("Failed to create notification service: %v", err)
+		}
+
+		// Initialize power watcher
+		powerWatcher = watcher.NewWatcher(cfg, wsClient, haClient, notifSvc)
+
+		// Start power watcher in a separate goroutine
+		go func() {
+			if err := powerWatcher.Start(ctx); err != nil {
+				logger.Error("Power watcher error: %v", err)
+			}
+		}()
+
+		logger.Info("Power monitoring started")
+	} else {
+		logger.Info("Power monitoring not configured, skipping")
+	}
+
 	logger.Info("Bot is running. Press Ctrl+C to stop.")
 
 	// Wait for shutdown signal
 	<-sigChan
-	logger.Info("Shutdown signal received, stopping bot...")
+	logger.Info("Shutdown signal received, stopping services...")
 	cancel()
 
-	// Allow time for graceful shutdown
+	// Stop power watcher if running
+	if powerWatcher != nil {
+		powerWatcher.Stop()
+		logger.Info("Power watcher stopped")
+	}
+
+	// Stop Telegram bot
 	telegramBot.Stop()
 	logger.Info("Bot stopped successfully")
 }

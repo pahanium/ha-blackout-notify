@@ -36,6 +36,11 @@ func New(cfg *config.Config, haClient *homeassistant.Client) (*Bot, error) {
 	}, nil
 }
 
+// GetAPI returns the underlying Telegram Bot API for use by other services
+func (b *Bot) GetAPI() *tgbotapi.BotAPI {
+	return b.api
+}
+
 // Start starts processing messages
 func (b *Bot) Start(ctx context.Context) error {
 	u := tgbotapi.NewUpdate(0)

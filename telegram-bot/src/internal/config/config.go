@@ -19,6 +19,16 @@ type Config struct {
 	// General settings
 	LogLevel        string
 	PollingInterval int
+
+	// Power monitoring settings
+	NotificationChatIDs []int64 // Chat IDs for power notifications (can be channels)
+	WatchedEntityID     string  // Entity ID of power sensor (e.g., binary_sensor.power)
+	NextOnSensorID      string  // Entity ID of sensor with next power on time
+	NextOffSensorID     string  // Entity ID of sensor with next power off time
+	PauseEntityID       string  // Entity ID of input_boolean to pause notifications
+
+	// Timezone for formatting
+	Timezone string
 }
 
 // Load loads configuration from environment variables
@@ -29,12 +39,25 @@ func Load() (*Config, error) {
 		HAToken:         os.Getenv("HA_TOKEN"),
 		LogLevel:        getEnvOrDefault("LOG_LEVEL", "info"),
 		PollingInterval: getEnvAsInt("POLLING_INTERVAL", 30),
+
+		// Power monitoring settings
+		WatchedEntityID: os.Getenv("WATCHED_ENTITY_ID"),
+		NextOnSensorID:  os.Getenv("NEXT_ON_SENSOR_ID"),
+		NextOffSensorID: os.Getenv("NEXT_OFF_SENSOR_ID"),
+		PauseEntityID:   getEnvOrDefault("PAUSE_ENTITY_ID", "input_boolean.pause_power_notifications"),
+		Timezone:        getEnvOrDefault("TIMEZONE", "Europe/Kyiv"),
 	}
 
 	// Parse allowed chat IDs
 	chatIDsStr := os.Getenv("ALLOWED_CHAT_IDS")
 	if chatIDsStr != "" {
 		cfg.AllowedChatIDs = parseChatIDs(chatIDsStr)
+	}
+
+	// Parse notification chat IDs (for power notifications)
+	notifChatIDsStr := os.Getenv("NOTIFICATION_CHAT_IDS")
+	if notifChatIDsStr != "" {
+		cfg.NotificationChatIDs = parseChatIDs(notifChatIDsStr)
 	}
 
 	return cfg, nil
@@ -53,6 +76,11 @@ func (c *Config) IsChatAllowed(chatID int64) bool {
 		}
 	}
 	return false
+}
+
+// IsPowerMonitoringEnabled checks if power monitoring is configured
+func (c *Config) IsPowerMonitoringEnabled() bool {
+	return c.WatchedEntityID != "" && len(c.NotificationChatIDs) > 0
 }
 
 func getEnvOrDefault(key, defaultValue string) string {
