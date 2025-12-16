@@ -20,6 +20,7 @@ const (
 	IconSchedule = "📅"
 	IconWarning  = "⚠️"
 	IconPause    = "⏸️"
+	IconUpdate   = "🔄"
 )
 
 // Service handles power notifications
@@ -56,7 +57,7 @@ func (s *Service) NotifyPowerOn(ctx context.Context) error {
 	now := time.Now().In(s.location)
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("%s *Світло повернулось!* (%s)\n\n", IconPowerOn, now.Format("15:04")))
+	sb.WriteString(fmt.Sprintf("%s *Світло повернулось!*\n\n", IconPowerOn))
 
 	// Get next scheduled off time
 	if s.config.NextOffSensorID != "" {
@@ -85,7 +86,7 @@ func (s *Service) NotifyPowerOff(ctx context.Context) error {
 	now := time.Now().In(s.location)
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("%s *Світло вимкнено* (%s)\n\n", IconPowerOff, now.Format("15:04")))
+	sb.WriteString(fmt.Sprintf("%s *Світло вимкнено*\n\n", IconPowerOff))
 
 	// Get next scheduled on time
 	if s.config.NextOnSensorID != "" {
@@ -194,6 +195,46 @@ func (s *Service) sendToAllChats(text string) error {
 // SendCustomMessage sends a custom message to notification chats
 func (s *Service) SendCustomMessage(text string) error {
 	return s.sendToAllChats(text)
+}
+
+// NotifyScheduleChanged sends notification when schedule changes
+// scheduleType: "on" for next power on, "off" for next power off
+func (s *Service) NotifyScheduleChanged(ctx context.Context, scheduleType string, oldTime, newTime *time.Time) error {
+	if s.isPaused(ctx) {
+		logger.Debug("Notifications paused, skipping schedule change notification")
+		return nil
+	}
+
+	now := time.Now().In(s.location)
+
+	var sb strings.Builder
+
+	if scheduleType == "on" {
+		sb.WriteString(fmt.Sprintf("%s *Графік змінено*\n\n", IconUpdate))
+		if newTime != nil {
+			duration := newTime.Sub(now)
+			sb.WriteString(fmt.Sprintf("%s Нове планове включення через *%s* (%s)\n",
+				IconSchedule,
+				formatDuration(duration),
+				newTime.In(s.location).Format("15:04")))
+		}
+	} else {
+		sb.WriteString(fmt.Sprintf("%s *Графік змінено*\n\n", IconUpdate))
+		if newTime != nil {
+			duration := newTime.Sub(now)
+			sb.WriteString(fmt.Sprintf("%s Нове планове відключення через *%s* (%s)\n",
+				IconSchedule,
+				formatDuration(duration),
+				newTime.In(s.location).Format("15:04")))
+		}
+	}
+
+	return s.sendToAllChats(sb.String())
+}
+
+// GetScheduledTime is a public wrapper for getScheduledTime
+func (s *Service) GetScheduledTime(ctx context.Context, sensorID string) (*time.Time, error) {
+	return s.getScheduledTime(ctx, sensorID)
 }
 
 // formatDuration formats duration in human-readable Ukrainian
