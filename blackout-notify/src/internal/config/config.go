@@ -100,13 +100,26 @@ func getEnvAsInt(key string, defaultValue int) int {
 }
 
 func parseChatIDs(str string) []int64 {
-	// Format: "[123,456,789]" or "123,456,789"
+	// Handle empty or null values
+	str = strings.TrimSpace(str)
+	if str == "" || str == "null" || str == "[]" {
+		return nil
+	}
+
+	// Format: "[123,456,789]" or "123,456,789" or "123 456 789"
 	str = strings.Trim(str, "[]")
+
+	// Replace common separators with comma
+	str = strings.ReplaceAll(str, " ", ",")
+
 	parts := strings.Split(str, ",")
 
 	var ids []int64
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
 		if id, err := strconv.ParseInt(part, 10, 64); err == nil {
 			ids = append(ids, id)
 		}

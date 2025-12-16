@@ -32,11 +32,11 @@ homeassistant_api: true
 # Options that user can configure in UI
 options:
   telegram_token: ""
-  allowed_chat_ids: []
+  allowed_chat_ids: ""
   log_level: "info"
   polling_interval: 30
   # Power monitoring settings
-  notification_chat_ids: []
+  notification_chat_ids: ""
   watched_entity_id: ""
   next_on_sensor_id: ""
   next_off_sensor_id: ""
@@ -46,13 +46,11 @@ options:
 # Options validation schema
 schema:
   telegram_token: str
-  allowed_chat_ids:
-    - int
+  allowed_chat_ids: str?
   log_level: list(debug|info|warn|error)
   polling_interval: int(10,300)
   # Power monitoring schema
-  notification_chat_ids:
-    - int
+  notification_chat_ids: str?
   watched_entity_id: str?
   next_on_sensor_id: str?
   next_off_sensor_id: str?
