@@ -3,9 +3,9 @@
 # Uses Dockerfile.dev which builds a simple Go binary without s6-overlay
 
 services:
-  telegram-bot:
+  blackout-notify:
     build:
-      context: ./telegram-bot
+      context: ./blackout-notify
       dockerfile: Dockerfile.dev
     env_file:
       - .env

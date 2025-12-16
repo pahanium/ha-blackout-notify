@@ -1,11 +1,11 @@
 # Home Assistant Add-on Configuration
 # Documentation: https://developers.home-assistant.io/docs/add-ons/configuration
 
-name: "Telegram Bot"
+name: "Blackout Notify"
 version: "0.1.0"
-slug: "telegram_bot"
-description: "Telegram bot for controlling Home Assistant and receiving notifications"
-url: "https://github.com/yourusername/haaddon/tree/main/telegram-bot"
+slug: "blackout_notify"
+description: "Power grid monitoring with Telegram notifications for outages and restoration"
+url: "https://github.com/pahanium/ha-blackout-notify"
 
 # Supported architectures
 arch:
@@ -63,7 +63,7 @@ schema:
 homeassistant: "2024.1.0"
 
 # Build image
-image: "ghcr.io/yourusername/haaddon-telegram-bot-{arch}"
+image: "ghcr.io/pahanium/ha-blackout-notify-{arch}"
 
 # Mappings
 map:

@@ -4,15 +4,15 @@ This document contains guidelines for AI assistants working on this Home Assista
 
 ## Project Overview
 
-This is a **Home Assistant Add-on** that provides a Telegram bot for controlling Home Assistant entities. The add-on is written in **Go** and packaged as a Docker container.
+This is a **Home Assistant Add-on** called **Blackout Notify** that monitors power grid status and sends Telegram notifications when power outages occur or power is restored. The add-on is written in **Go** and packaged as a Docker container.
 
 ## Project Structure
 
 ```
-haaddon/
+ha-blackout-notify/
 ├── .github/workflows/       # CI/CD pipelines
 ├── scripts/                 # Build scripts
-├── telegram-bot/            # Main add-on directory
+├── blackout-notify/         # Main add-on directory
 │   ├── config.yaml          # HA add-on configuration
 │   ├── Dockerfile           # Multi-stage Docker build
 │   ├── DOCS.md              # User documentation
@@ -26,7 +26,9 @@ haaddon/
 │       └── internal/
 │           ├── bot/         # Telegram bot logic
 │           ├── config/      # Configuration handling
-│           ├── homeassistant/ # HA API client
+│           ├── homeassistant/ # HA API client (REST + WebSocket)
+│           ├── notifications/ # Notification formatting and sending
+│           ├── watcher/     # Power state monitoring
 │           └── logger/      # Logging utilities
 ├── docker-compose.dev.yaml  # Local development
 ├── .env.example             # Environment variables template
@@ -41,6 +43,7 @@ haaddon/
 - **All code comments must be in English**
 - **All documentation must be in English**
 - Use clear, concise English for variable names and function names
+- User-facing notification messages can be in Ukrainian
 
 ### Go Conventions
 - Follow standard Go project layout

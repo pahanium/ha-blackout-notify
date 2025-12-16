@@ -1,0 +1,94 @@
+# Home Assistant Configuration Examples for Telegram Bot Power Monitoring
+# Examples of Home Assistant configuration for power monitoring
+
+# =====================================================
+# 1. Input Boolean for pausing notifications
+# =====================================================
+# Add this to configuration.yaml or separate input_boolean.yaml file
+
+input_boolean:
+  pause_power_notifications:
+    name: "Pause power notifications"
+    icon: mdi:bell-off
+
+# =====================================================
+# 2. Virtual sensor example for testing
+# =====================================================
+# Add this to configuration.yaml
+
+input_boolean:
+  virtual_power_sensor:
+    name: "Virtual power sensor"
+    icon: mdi:power-plug
+
+# =====================================================
+# 3. Time sensor examples (if you need to create manually)
+# =====================================================
+# If you don't have an integration with power outage schedule,
+# you can create input_datetime sensors:
+
+input_datetime:
+  next_power_on:
+    name: "Next power on time"
+    has_date: true
+    has_time: true
+    icon: mdi:power-plug
+
+  next_power_off:
+    name: "Next power off time"
+    has_date: true
+    has_time: true
+    icon: mdi:power-plug-off
+
+# =====================================================
+# 4. Automation example for updating time
+# =====================================================
+# If you have an integration with DTEK schedule or other
+
+automation:
+  - alias: "Update next power on time"
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.power_status
+        to: "off"
+    action:
+      - service: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.next_power_on
+        data:
+          # Logic for getting time from your source
+          datetime: "{{ now() + timedelta(hours=4) }}"
+
+# =====================================================
+# 5. Lovelace card for control
+# =====================================================
+# Add to your dashboard:
+
+# type: entities
+# title: Notification Control
+# entities:
+#   - entity: input_boolean.pause_power_notifications
+#     name: Pause notifications
+#   - entity: binary_sensor.power_status
+#     name: Power status
+#   - entity: sensor.next_power_on
+#     name: Next power on
+#   - entity: sensor.next_power_off
+#     name: Next power off
+
+# =====================================================
+# 6. Example .env for the bot
+# =====================================================
+# 
+# TELEGRAM_TOKEN=your_bot_token
+# HA_API_URL=http://homeassistant.local:8123/api
+# HA_TOKEN=your_long_lived_access_token
+# ALLOWED_CHAT_IDS=123456789
+# 
+# # Power monitoring settings
+# NOTIFICATION_CHAT_IDS=-1001234567890  # Telegram channel/group ID
+# WATCHED_ENTITY_ID=binary_sensor.power_status
+# NEXT_ON_SENSOR_ID=sensor.next_power_on
+# NEXT_OFF_SENSOR_ID=sensor.next_power_off
+# PAUSE_ENTITY_ID=input_boolean.pause_power_notifications
+# TIMEZONE=Europe/Kyiv

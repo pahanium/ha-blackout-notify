@@ -5,13 +5,13 @@ set -e
 
 cd "$(dirname "$0")/.."
 
-ADDON_NAME="telegram-bot"
-VERSION=$(grep "version:" telegram-bot/config.yaml | awk '{print $2}' | tr -d '"')
+ADDON_NAME="blackout-notify"
+VERSION=$(grep "version:" blackout-notify/config.yaml | awk '{print $2}' | tr -d '"')
 ARCH=${1:-amd64}
 
 echo "=== Building $ADDON_NAME v$VERSION for $ARCH ==="
 
-cd telegram-bot
+cd blackout-notify
 
 docker build \
     --build-arg BUILD_FROM=ghcr.io/home-assistant/${ARCH}-base:3.18 \

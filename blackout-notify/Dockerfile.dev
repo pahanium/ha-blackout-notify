@@ -1,0 +1,31 @@
+# Development Dockerfile - simple Go binary execution without s6-overlay
+# Use this for local testing outside Home Assistant environment
+
+FROM golang:1.21-alpine AS builder
+
+WORKDIR /build
+
+# Install build dependencies
+RUN apk add --no-cache git
+
+# Copy source code
+COPY src/ .
+
+# Download dependencies
+RUN go mod download
+
+# Build the application
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o telegram-bot ./cmd/bot
+
+# Production stage - minimal image
+FROM alpine:3.18
+
+RUN apk add --no-cache ca-certificates tzdata
+
+WORKDIR /app
+
+# Copy binary from builder
+COPY --from=builder /build/telegram-bot /app/telegram-bot
+
+# Run the binary directly (reads from environment variables)
+CMD ["/app/telegram-bot"]

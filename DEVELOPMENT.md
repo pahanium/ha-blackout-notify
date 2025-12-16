@@ -3,7 +3,7 @@
 ## Project Structure
 
 ```
-haaddon/
+ha-blackout-notify/
 ├── repository.yaml          # Add-on repository metadata
 ├── README.md                 # Repository description
 ├── CLAUDE.md                 # AI assistant guidelines
@@ -12,7 +12,7 @@ haaddon/
 ├── scripts/
 │   ├── build.sh              # Go build without Docker
 │   └── docker-build.sh       # Docker image build
-└── telegram-bot/             # Add-on directory
+└── blackout-notify/          # Add-on directory
     ├── config.yaml           # HA add-on configuration
     ├── Dockerfile            # Multi-stage build
     ├── DOCS.md               # User documentation
@@ -27,6 +27,8 @@ haaddon/
             ├── bot/
             ├── config/
             ├── homeassistant/
+            ├── notifications/
+            ├── watcher/
             └── logger/
 ```
 
@@ -41,7 +43,7 @@ Fastest approach for development:
 ```bash
 # 1. Install Go 1.21+
 # 2. Navigate to source directory
-cd telegram-bot/src
+cd blackout-notify/src
 
 # 3. Download dependencies
 go mod tidy
@@ -50,7 +52,7 @@ go mod tidy
 go test -v ./...
 
 # 5. Build binary
-go build -o ../bin/telegram-bot ./cmd/bot
+go build -o ../bin/blackout-notify ./cmd/bot
 
 # 6. Set environment variables and run
 export TELEGRAM_TOKEN="your_telegram_token"
@@ -58,7 +60,7 @@ export HA_API_URL="http://your-home-assistant:8123/api"
 export HA_TOKEN="your_long_lived_access_token"
 export LOG_LEVEL="debug"
 
-../bin/telegram-bot
+../bin/blackout-notify
 ```
 
 ### Option 2: Docker Compose (Recommended)
@@ -91,7 +93,7 @@ docker run --rm \
   -e TELEGRAM_TOKEN="xxx" \
   -e HA_API_URL="http://192.168.1.100:8123/api" \
   -e HA_TOKEN="xxx" \
-  local/telegram-bot:latest
+  local/blackout-notify:latest
 ```
 
 ---
@@ -126,19 +128,19 @@ Simplest approach for testing on a real HA instance:
 ```bash
 # 1. On the Home Assistant server (where Supervisor is running)
 # Copy the entire repository to /addons
-scp -r haaddon/ user@ha-server:/addons/
+scp -r ha-blackout-notify/ user@ha-server:/addons/
 
 # Or create a symbolic link
 # SSH to HA server:
 cd /addons
-ln -s /path/to/your/haaddon .
+ln -s /path/to/your/ha-blackout-notify .
 ```
 
 **In Home Assistant:**
 1. Go to: **Settings** → **Add-ons** → **Add-on Store**
 2. Click menu (⋮) → **Check for updates**
 3. In menu (⋮) → **Repositories** ensure local add-ons are enabled
-4. Find "Telegram Bot" in Local add-ons
+4. Find "Blackout Notify" in Local add-ons
 5. Install and configure
 
 ### Method 2: GitHub Repository (Recommended for production)
