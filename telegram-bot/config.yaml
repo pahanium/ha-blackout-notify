@@ -1,0 +1,55 @@
+# Home Assistant Add-on Configuration
+# Документація: https://developers.home-assistant.io/docs/add-ons/configuration
+
+name: "Telegram Bot"
+version: "0.1.0"
+slug: "telegram_bot"
+description: "Telegram bot for controlling Home Assistant and receiving notifications"
+url: "https://github.com/yourusername/haaddon/tree/main/telegram-bot"
+
+# Підтримувані архітектури
+arch:
+  - amd64
+  - aarch64
+  - armv7
+
+# Запуск при старті HA
+startup: services
+boot: auto
+
+# Доступ до Home Assistant API (обов'язково для роботи з entities)
+homeassistant_api: true
+
+# Мережеві порти (опціонально, якщо потрібен веб-інтерфейс)
+# ports:
+#   "8080/tcp": 8080
+# ports_description:
+#   "8080/tcp": "Web interface"
+
+# Змінні оточення, що передаються в контейнер
+# SUPERVISOR_TOKEN передається автоматично при homeassistant_api: true
+
+# Опції, які користувач може налаштувати в UI
+options:
+  telegram_token: ""
+  allowed_chat_ids: []
+  log_level: "info"
+  polling_interval: 30
+
+# Схема валідації опцій
+schema:
+  telegram_token: str
+  allowed_chat_ids:
+    - int
+  log_level: list(debug|info|warn|error)
+  polling_interval: int(10,300)
+
+# Мінімальна версія Home Assistant
+homeassistant: "2024.1.0"
+
+# Образ для збірки
+image: "ghcr.io/yourusername/haaddon-telegram-bot-{arch}"
+
+# Мітки
+map:
+  - config:ro

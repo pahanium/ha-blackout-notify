@@ -1,0 +1,21 @@
+# Local development and testing
+# This docker-compose is ONLY for local development
+# Uses Dockerfile.dev which builds a simple Go binary without s6-overlay
+
+services:
+  telegram-bot:
+    build:
+      context: ./telegram-bot
+      dockerfile: Dockerfile.dev
+    env_file:
+      - .env
+    restart: unless-stopped
+
+  # Optional: mock Home Assistant for tests
+  # homeassistant-mock:
+  #   image: python:3.11-slim
+  #   volumes:
+  #     - ./tests/mock_ha:/app
+  #   command: python /app/server.py
+  #   ports:
+  #     - "8123:8123"

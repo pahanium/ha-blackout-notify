@@ -1,0 +1,26 @@
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build
+telegram-bot/bin/
+telegram-bot/rootfs/app
+
+# Local development
+.env
+*.local
+
+# Docker
+docker-compose.override.yml
