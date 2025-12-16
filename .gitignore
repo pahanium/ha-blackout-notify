@@ -15,8 +15,8 @@ vendor/
 *.swo
 
 # Build
-telegram-bot/bin/
-telegram-bot/rootfs/app
+blackout-notify/bin/
+blackout-notify/rootfs/app
 
 # Local development
 .env

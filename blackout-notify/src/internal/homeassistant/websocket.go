@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 	"sync"
@@ -100,7 +101,13 @@ func (c *WSClient) getWSURL() string {
 	if err != nil {
 		return wsURL + "/api/websocket"
 	}
-	u.Path = "/api/websocket"
+
+	// For Supervisor API use /core/websocket path
+	if strings.Contains(wsURL, "supervisor") {
+		u.Path = "/core/websocket"
+	} else {
+		u.Path = "/api/websocket"
+	}
 	return u.String()
 }
 
@@ -109,8 +116,17 @@ func (c *WSClient) Connect(ctx context.Context) error {
 	wsURL := c.getWSURL()
 	logger.Debug("Connecting to WebSocket: %s", wsURL)
 
-	conn, _, err := websocket.DefaultDialer.DialContext(ctx, wsURL, nil)
+	// Prepare headers for Supervisor authentication
+	header := http.Header{}
+	if strings.Contains(wsURL, "supervisor") && c.token != "" {
+		header.Set("Authorization", "Bearer "+c.token)
+	}
+
+	conn, resp, err := websocket.DefaultDialer.DialContext(ctx, wsURL, header)
 	if err != nil {
+		if resp != nil {
+			logger.Debug("WebSocket handshake response status: %d", resp.StatusCode)
+		}
 		return fmt.Errorf("failed to connect to WebSocket: %w", err)
 	}
 
