@@ -39,11 +39,10 @@ RUN apk add --no-cache ca-certificates tzdata
 # Copy binary from builder stage
 COPY --from=builder /blackout-notify /app/blackout-notify
 
-# Copy startup script
+# Copy s6-overlay service files
 COPY rootfs /
 
 # Execution permissions
-RUN chmod a+x /app/blackout-notify /run.sh
-
-# Entry point
-CMD ["/run.sh"]
+RUN chmod a+x /app/blackout-notify \
+    && chmod a+x /etc/services.d/blackout-notify/run \
+    && chmod a+x /etc/services.d/blackout-notify/finish

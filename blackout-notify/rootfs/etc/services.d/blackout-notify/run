@@ -27,6 +27,7 @@ export HA_TOKEN="${SUPERVISOR_TOKEN}"
 # Log startup
 bashio::log.info "Starting Blackout Notify..."
 bashio::log.info "Log level: ${LOG_LEVEL}"
+bashio::log.info "Watched entity: ${WATCHED_ENTITY_ID}"
 
 # Check if token is configured
 if bashio::var.is_empty "${TELEGRAM_TOKEN}"; then
