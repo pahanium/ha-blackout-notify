@@ -1,49 +1,49 @@
-# Multi-stage build для Go add-on
+# Multi-stage build for Go add-on
 # Stage 1: Build Go binary
 ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base:3.18
 FROM golang:1.21-alpine AS builder
 
-# Встановлюємо необхідні пакети для збірки
+# Install required packages for build
 RUN apk add --no-cache git ca-certificates tzdata
 
-# Робоча директорія
+# Working directory
 WORKDIR /app
 
-# Копіюємо go mod файли для кешування залежностей
+# Copy go mod files for dependency caching
 COPY src/go.mod src/go.sum ./
 
-# Завантажуємо залежності
+# Download dependencies
 RUN go mod download
 
-# Копіюємо весь код
+# Copy all code
 COPY src/ ./
 
-# Збираємо бінарник
-# CGO_ENABLED=0 для статичної збірки
-# -ldflags для зменшення розміру
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /telegram-bot ./cmd/bot
+# Build binary
+# CGO_ENABLED=0 for static build
+# -ldflags to reduce size
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /blackout-notify ./cmd/bot
 
 # Stage 2: Final image
 FROM ${BUILD_FROM}
 
-# Мітки для Home Assistant
+# Labels for Home Assistant
 LABEL \
-    io.hass.name="Telegram Bot" \
-    io.hass.description="Telegram bot for Home Assistant" \
+    io.hass.name="Blackout Notify" \
+    io.hass.description="Power grid monitoring with Telegram notifications" \
     io.hass.type="addon" \
     io.hass.version="0.1.0"
 
-# Встановлюємо ca-certificates для HTTPS запитів
+# Install ca-certificates for HTTPS requests
 RUN apk add --no-cache ca-certificates tzdata
 
-# Копіюємо бінарник з builder stage
-COPY --from=builder /telegram-bot /app/telegram-bot
+# Copy binary from builder stage
+COPY --from=builder /blackout-notify /app/blackout-notify
 
-# Копіюємо скрипт запуску
+# Copy startup script
 COPY rootfs /
 
-# Права на виконання
-RUN chmod a+x /app/telegram-bot /run.sh
+# Execution permissions
+RUN chmod a+x /app/blackout-notify /run.sh
 
 # Entry point
 CMD ["/run.sh"]
