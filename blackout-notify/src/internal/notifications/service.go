@@ -57,7 +57,7 @@ func (s *Service) NotifyPowerOn(ctx context.Context) error {
 	now := time.Now().In(s.location)
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("%s *Світло повернулось!*\n\n", IconPowerOn))
+	sb.WriteString(fmt.Sprintf("%s *Світло повернулось!*", IconPowerOn))
 
 	// Get next scheduled off time
 	if s.config.NextOffSensorID != "" {
@@ -66,7 +66,7 @@ func (s *Service) NotifyPowerOn(ctx context.Context) error {
 			logger.Warn("Failed to get next off time: %v", err)
 		} else if nextOff != nil {
 			duration := nextOff.Sub(now)
-			sb.WriteString(fmt.Sprintf("%s Наступне планове відключення через *%s* (%s)\n",
+			sb.WriteString(fmt.Sprintf("\n\n%s Відключення через *%s* (%s)\n_за даними Yasno_",
 				IconSchedule,
 				formatDuration(duration),
 				nextOff.In(s.location).Format("15:04")))
@@ -86,7 +86,7 @@ func (s *Service) NotifyPowerOff(ctx context.Context) error {
 	now := time.Now().In(s.location)
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("%s *Світло вимкнено*\n\n", IconPowerOff))
+	sb.WriteString(fmt.Sprintf("%s *Світло вимкнено*", IconPowerOff))
 
 	// Get next scheduled on time
 	if s.config.NextOnSensorID != "" {
@@ -95,7 +95,7 @@ func (s *Service) NotifyPowerOff(ctx context.Context) error {
 			logger.Warn("Failed to get next on time: %v", err)
 		} else if nextOn != nil {
 			duration := nextOn.Sub(now)
-			sb.WriteString(fmt.Sprintf("%s Наступне планове включення через *%s* (%s)\n",
+			sb.WriteString(fmt.Sprintf("\n\n%s Заживлення через *%s* (%s)\n_за даними Yasno_",
 				IconSchedule,
 				formatDuration(duration),
 				nextOn.In(s.location).Format("15:04")))
@@ -208,26 +208,27 @@ func (s *Service) NotifyScheduleChanged(ctx context.Context, scheduleType string
 	now := time.Now().In(s.location)
 
 	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("%s *Графік оновлено*\n\n", IconUpdate))
 
 	if scheduleType == "on" {
-		sb.WriteString(fmt.Sprintf("%s *Графік змінено*\n\n", IconUpdate))
 		if newTime != nil {
 			duration := newTime.Sub(now)
-			sb.WriteString(fmt.Sprintf("%s Нове планове включення через *%s* (%s)\n",
+			sb.WriteString(fmt.Sprintf("%s Заживлення через *%s* (%s)\n",
 				IconSchedule,
 				formatDuration(duration),
 				newTime.In(s.location).Format("15:04")))
 		}
 	} else {
-		sb.WriteString(fmt.Sprintf("%s *Графік змінено*\n\n", IconUpdate))
 		if newTime != nil {
 			duration := newTime.Sub(now)
-			sb.WriteString(fmt.Sprintf("%s Нове планове відключення через *%s* (%s)\n",
+			sb.WriteString(fmt.Sprintf("%s Відключення через *%s* (%s)\n",
 				IconSchedule,
 				formatDuration(duration),
 				newTime.In(s.location).Format("15:04")))
 		}
 	}
+
+	sb.WriteString("_за даними Yasno_")
 
 	return s.sendToAllChats(sb.String())
 }
