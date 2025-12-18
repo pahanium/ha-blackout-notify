@@ -264,6 +264,17 @@ func (w *Watcher) handleScheduleChange(ctx context.Context, scheduleType string,
 		shouldNotify = true
 	}
 
+	// Suppress notification if old scheduled time has already passed or passed recently (within 60 min)
+	// This happens when power state change is delayed but schedule already updated
+	if shouldNotify && oldTime != nil {
+		timeSinceOldSchedule := time.Since(*oldTime)
+		if timeSinceOldSchedule > -time.Minute && timeSinceOldSchedule < 60*time.Minute {
+			logger.Debug("Suppressing schedule notification: old time %s already passed (%.0f min ago)",
+				formatTimePtr(oldTime), timeSinceOldSchedule.Minutes())
+			shouldNotify = false
+		}
+	}
+
 	if shouldNotify {
 		if err := w.notifSvc.NotifyScheduleChanged(ctx, scheduleType, oldTime, newTime); err != nil {
 			logger.Error("Failed to send schedule change notification: %v", err)

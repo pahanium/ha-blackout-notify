@@ -42,8 +42,10 @@ ha-blackout-notify/
 ### Language
 - **All code comments must be in English**
 - **All documentation must be in English**
+- **All commit messages must be in English**
+- **All CHANGELOG entries must be in English**
 - Use clear, concise English for variable names and function names
-- User-facing notification messages can be in Ukrainian
+- **ONLY exception**: User-facing notification messages sent to Telegram can be in Ukrainian
 
 ### Go Conventions
 - Follow standard Go project layout
