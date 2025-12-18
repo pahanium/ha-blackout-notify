@@ -66,10 +66,10 @@ func TestIsChatAllowed(t *testing.T) {
 			want:       false,
 		},
 		{
-			name:       "empty list allows all",
+			name:       "empty list denies all (security)",
 			allowedIDs: []int64{},
 			chatID:     999,
-			want:       true,
+			want:       false,
 		},
 	}
 
@@ -78,6 +78,39 @@ func TestIsChatAllowed(t *testing.T) {
 			cfg := &Config{AllowedChatIDs: tt.allowedIDs}
 			if got := cfg.IsChatAllowed(tt.chatID); got != tt.want {
 				t.Errorf("IsChatAllowed() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsBotCommandsEnabled(t *testing.T) {
+	tests := []struct {
+		name       string
+		allowedIDs []int64
+		want       bool
+	}{
+		{
+			name:       "enabled with chat IDs",
+			allowedIDs: []int64{123, 456},
+			want:       true,
+		},
+		{
+			name:       "disabled when empty",
+			allowedIDs: []int64{},
+			want:       false,
+		},
+		{
+			name:       "disabled when nil",
+			allowedIDs: nil,
+			want:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{AllowedChatIDs: tt.allowedIDs}
+			if got := cfg.IsBotCommandsEnabled(); got != tt.want {
+				t.Errorf("IsBotCommandsEnabled() = %v, want %v", got, tt.want)
 			}
 		})
 	}

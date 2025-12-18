@@ -49,13 +49,18 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// Start Telegram bot command handler in a separate goroutine
-	go func() {
-		if err := telegramBot.Start(ctx); err != nil {
-			logger.Error("Bot error: %v", err)
-			cancel()
-		}
-	}()
+	// Start Telegram bot command handler if enabled
+	if cfg.IsBotCommandsEnabled() {
+		logger.Info("Bot commands enabled for %d chat(s)", len(cfg.AllowedChatIDs))
+		go func() {
+			if err := telegramBot.Start(ctx); err != nil {
+				logger.Error("Bot error: %v", err)
+				cancel()
+			}
+		}()
+	} else {
+		logger.Info("Bot commands disabled (allowed_chat_ids is empty)")
+	}
 
 	// Initialize power monitoring if configured
 	var powerWatcher *watcher.Watcher

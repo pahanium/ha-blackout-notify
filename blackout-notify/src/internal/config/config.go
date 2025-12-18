@@ -65,9 +65,9 @@ func Load() (*Config, error) {
 
 // IsChatAllowed checks if chat ID is allowed
 func (c *Config) IsChatAllowed(chatID int64) bool {
-	// If list is empty - allow all (unsafe!)
+	// If list is empty - deny all (safe by default)
 	if len(c.AllowedChatIDs) == 0 {
-		return true
+		return false
 	}
 
 	for _, allowed := range c.AllowedChatIDs {
@@ -76,6 +76,11 @@ func (c *Config) IsChatAllowed(chatID int64) bool {
 		}
 	}
 	return false
+}
+
+// IsBotCommandsEnabled checks if bot commands are enabled
+func (c *Config) IsBotCommandsEnabled() bool {
+	return len(c.AllowedChatIDs) > 0
 }
 
 // IsPowerMonitoringEnabled checks if power monitoring is configured

@@ -38,13 +38,15 @@ Then in HA: **Settings** → **Add-ons** → menu (⋮) → **Check for updates*
 
 ```yaml
 telegram_token: "YOUR_BOT_TOKEN"           # Required: Get from @BotFather
-allowed_chat_ids: "123456789,987654321"    # Recommended: Your Telegram chat IDs
+allowed_chat_ids: "123456789,987654321"    # Optional: Leave empty to disable bot commands
 notification_chat_ids: "-1001234567890"    # Chat/channel for notifications
 watched_entity_id: "binary_sensor.power"   # Entity to monitor
 next_on_sensor_id: "sensor.next_power_on"  # Optional: Next power on time
 next_off_sensor_id: "sensor.next_power_off" # Optional: Next power off time
 log_level: "info"                          # debug/info/warn/error
 ```
+
+**Note:** If you only need power notifications without bot commands, leave `allowed_chat_ids` empty.
 
 ### Getting Tokens
 
@@ -63,6 +65,8 @@ log_level: "info"                          # debug/info/warn/error
 3. Click **Create Token** and copy it
 
 ## Bot Commands
+
+**Note:** Bot commands are only available when `allowed_chat_ids` is configured. If left empty, only notifications will work.
 
 | Command | Description |
 |---------|-------------|

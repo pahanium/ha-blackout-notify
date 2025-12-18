@@ -62,7 +62,11 @@ func (b *Bot) Start(ctx context.Context) error {
 			// Check if chat ID is allowed
 			if !b.config.IsChatAllowed(update.Message.Chat.ID) {
 				logger.Warn("Unauthorized access attempt from chat ID: %d", update.Message.Chat.ID)
-				b.sendMessage(update.Message.Chat.ID, "⛔ Access denied. Your chat ID is not in the allowed list.")
+				if len(b.config.AllowedChatIDs) == 0 {
+					b.sendMessage(update.Message.Chat.ID, "⛔ Bot commands are disabled. Configure allowed_chat_ids to enable.")
+				} else {
+					b.sendMessage(update.Message.Chat.ID, "⛔ Access denied. Your chat ID is not in the allowed list.")
+				}
 				continue
 			}
 

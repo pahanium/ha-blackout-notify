@@ -19,13 +19,15 @@ This add-on allows you to control Home Assistant via Telegram bot and receive au
 
 Your Telegram bot token. Get it from [@BotFather](https://t.me/BotFather).
 
-#### allowed_chat_ids (recommended)
+#### allowed_chat_ids (optional)
 
-List of chat IDs allowed to use the bot. If empty - bot is accessible to everyone (dangerous!).
+List of chat IDs allowed to use bot commands. **If empty - bot commands are disabled** (only notifications will work).
 
 To find your chat ID:
 1. Message [@userinfobot](https://t.me/userinfobot)
 2. It will return your ID
+
+**Security:** Leave empty if you only need power notifications without bot control commands.
 
 #### log_level
 
@@ -75,6 +77,8 @@ Default: `Europe/Kyiv`
 
 ## Bot Commands
 
+**Note:** Bot commands require `allowed_chat_ids` to be configured. If left empty, commands are disabled and only notifications work.
+
 | Command | Description |
 |---------|-------------|
 | `/start` | Welcome message and command list |
@@ -105,7 +109,7 @@ Default: `Europe/Kyiv`
 
 ### Schedule changed
 ```
-� *Графік оновлено*
+🔄 *Графік оновлено*
 
 📅 Заживлення через 2 год 30 хв (18:00)
 за даними Yasno
@@ -136,8 +140,10 @@ See `ha-config-examples.yaml` for detailed configuration examples.
 ## Security
 
 ⚠️ **Important**: 
-- Always set `allowed_chat_ids` to restrict bot access!
+- Bot commands are **disabled by default** (safe)
+- Set `allowed_chat_ids` only if you need bot commands
 - For public channels, use separate `notification_chat_ids`
+- Only listed chat IDs can control Home Assistant
 
 ## Environment Variables
 

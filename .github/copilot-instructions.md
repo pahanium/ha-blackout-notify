@@ -25,6 +25,7 @@ All config via environment variables parsed in `internal/config/config.go`. Insi
 - Use `http://supervisor/core/api` as HA API URL
 - `SUPERVISOR_TOKEN` is auto-injected by HA when `homeassistant_api: true`
 - Chat IDs parsed from comma/space-separated strings or JSON arrays
+- **Security**: Bot commands disabled by default (empty `allowed_chat_ids`)
 
 ### Home Assistant Integration
 - **REST Client** (`client.go`): Entity state queries, service calls

@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0] - 2024-12-18
+
+### Security
+- **Bot commands now disabled by default** - `allowed_chat_ids` must be explicitly configured to enable bot commands
+- Empty `allowed_chat_ids` now denies all access instead of allowing everyone (breaking change for security)
+- Added `IsBotCommandsEnabled()` check to prevent unauthorized command execution
+
+### Changed
+- Bot commands are only started if `allowed_chat_ids` is not empty
+- Improved unauthorized access messages: different messages for disabled vs unauthorized
+- Updated documentation to reflect secure-by-default behavior
+- Consolidated documentation: removed CLAUDE.md and DEVELOPMENT.md, merged into README.md
+
+### Added
+- Created `.github/copilot-instructions.md` for AI assistant guidance
+- Added tests for `IsBotCommandsEnabled()` function
+
+### Documentation
+- Translated DOCS.md to English (except Ukrainian notification examples)
+- Updated README.md with all development and deployment information
+- Clarified that bot commands require `allowed_chat_ids` configuration
+
 ## [0.2.5] - 2024-12-18
 
 ### Changed
