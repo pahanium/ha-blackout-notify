@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.1] - 2026-01-04
+
+### Fixed
+- **Power state monitoring improvements**: Added logic to skip notifications when state transitions from `unknown` to `on` or `off`
+  - Prevents false notifications on add-on startup or Home Assistant restart
+  - Only logs state changes without sending Telegram messages for initial state detection
+  - Real state changes (`on` → `off` or `off` → `on`) still trigger notifications as expected
+
+### Added
+- Comprehensive test coverage for watcher module with 11 test cases covering all state transition scenarios
+- Tests for `normalizeState()`, `timesEqual()`, `formatTimePtr()` and state change handling
+- Test coverage includes: unknown→on/off, on↔off transitions, debouncing, and multi-step scenarios
+
 ## [0.3.0] - 2024-12-18
 
 ### Security

@@ -137,6 +137,12 @@ func (w *Watcher) handleStateChange(ctx context.Context, oldState, newState *hom
 	w.lastChange = time.Now()
 	w.mu.Unlock()
 
+	// Skip notification if transitioning from unknown state
+	if previousState == PowerStateUnknown {
+		logger.Info("State transition from unknown to %s, skipping notification (initial state detection)", newPowerState)
+		return
+	}
+
 	// Send notification based on new state
 	switch newPowerState {
 	case PowerStateOn:
