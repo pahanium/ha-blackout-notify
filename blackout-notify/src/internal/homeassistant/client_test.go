@@ -39,7 +39,9 @@ func TestGetState(t *testing.T) {
 					"brightness":    255.0,
 				},
 			}
-			json.NewEncoder(w).Encode(entity)
+			if err := json.NewEncoder(w).Encode(entity); err != nil {
+				t.Errorf("Failed to encode response: %v", err)
+			}
 			return
 		}
 
