@@ -24,16 +24,16 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Download dependencies
-        working-directory: telegram-bot/src
+        working-directory: blackout-notify/src
         run: go mod download
 
       - name: Run tests
-        working-directory: telegram-bot/src
+        working-directory: blackout-notify/src
         run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
 
       - name: Build
-        working-directory: telegram-bot/src
-        run: CGO_ENABLED=0 go build -ldflags="-w -s" -o ../bin/telegram-bot ./cmd/bot
+        working-directory: blackout-notify/src
+        run: CGO_ENABLED=0 go build -ldflags="-w -s" -o ../bin/blackout-notify ./cmd/bot
 
   lint:
     name: Lint
@@ -51,7 +51,7 @@ jobs:
         uses: golangci/golangci-lint-action@v3
         with:
           version: latest
-          working-directory: telegram-bot/src
+          working-directory: blackout-notify/src
 
   build-addon:
     name: Build Add-on Image
@@ -81,20 +81,20 @@ jobs:
       - name: Get version
         id: version
         run: |
-          VERSION=$(grep "version:" telegram-bot/config.yaml | awk '{print $2}' | tr -d '"')
+          VERSION=$(grep "version:" blackout-notify/config.yaml | awk '{print $2}' | tr -d '"')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
-          context: ./telegram-bot
-          file: ./telegram-bot/Dockerfile
+          context: ./blackout-notify
+          file: ./blackout-notify/Dockerfile
           platforms: linux/${{ matrix.arch == 'aarch64' && 'arm64' || matrix.arch == 'armv7' && 'arm/v7' || 'amd64' }}
           push: ${{ github.event_name != 'pull_request' && startsWith(github.ref, 'refs/tags/') }}
           build-args: |
             BUILD_FROM=ghcr.io/home-assistant/${{ matrix.arch }}-base:3.18
           tags: |
-            ghcr.io/${{ github.repository_owner }}/haaddon-telegram-bot-${{ matrix.arch }}:${{ steps.version.outputs.version }}
-            ghcr.io/${{ github.repository_owner }}/haaddon-telegram-bot-${{ matrix.arch }}:latest
+            ghcr.io/${{ github.repository_owner }}/ha-blackout-notify-${{ matrix.arch }}:${{ steps.version.outputs.version }}
+            ghcr.io/${{ github.repository_owner }}/ha-blackout-notify-${{ matrix.arch }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
