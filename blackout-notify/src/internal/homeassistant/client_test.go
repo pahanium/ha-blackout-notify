@@ -104,7 +104,9 @@ func TestCallService(t *testing.T) {
 
 		if r.URL.Path == "/services/light/turn_on" {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("[]"))
+			if _, err := w.Write([]byte("[]")); err != nil {
+				t.Errorf("Failed to write response: %v", err)
+			}
 			return
 		}
 

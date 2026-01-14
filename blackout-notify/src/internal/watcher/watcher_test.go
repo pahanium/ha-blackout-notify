@@ -12,10 +12,9 @@ import (
 // testableWatcher wraps Watcher to track notification calls
 type testableWatcher struct {
 	*Watcher
-	mu            sync.Mutex
-	onCalls       int
-	offCalls      int
-	scheduleCalls int
+	mu       sync.Mutex
+	onCalls  int
+	offCalls int
 }
 
 func (tw *testableWatcher) trackPowerOn() {
@@ -30,12 +29,6 @@ func (tw *testableWatcher) trackPowerOff() {
 	tw.offCalls++
 }
 
-func (tw *testableWatcher) trackScheduleChange() {
-	tw.mu.Lock()
-	defer tw.mu.Unlock()
-	tw.scheduleCalls++
-}
-
 func (tw *testableWatcher) getPowerOnCalls() int {
 	tw.mu.Lock()
 	defer tw.mu.Unlock()
@@ -46,14 +39,6 @@ func (tw *testableWatcher) getPowerOffCalls() int {
 	tw.mu.Lock()
 	defer tw.mu.Unlock()
 	return tw.offCalls
-}
-
-func (tw *testableWatcher) reset() {
-	tw.mu.Lock()
-	defer tw.mu.Unlock()
-	tw.onCalls = 0
-	tw.offCalls = 0
-	tw.scheduleCalls = 0
 }
 
 // Override handleStateChange to track calls instead of sending real notifications
