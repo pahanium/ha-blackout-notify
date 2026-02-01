@@ -8,8 +8,8 @@ const (
 
 // Duration messages (format string with %s for duration)
 const (
-	MsgWasOn  = "⏱ Світло було %s"    // "⏱ Світло було 6год 25хв"
-	MsgWasOff = "⏱ Світла не було %s" // "⏱ Світла не було 2год 20хв"
+	MsgWasOn  = "🕐 Світло було %s"    // "🕐 Світло було 6год 25хв"
+	MsgWasOff = "🕐 Світла не було %s" // "🕐 Світла не було 2год 20хв"
 )
 
 // Schedule messages (format strings)
