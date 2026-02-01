@@ -11,6 +11,7 @@ import (
 	"github.com/yourusername/haaddon/telegram-bot/internal/homeassistant"
 	"github.com/yourusername/haaddon/telegram-bot/internal/logger"
 	"github.com/yourusername/haaddon/telegram-bot/internal/notifications"
+	"github.com/yourusername/haaddon/telegram-bot/internal/stats"
 	"github.com/yourusername/haaddon/telegram-bot/internal/watcher"
 )
 
@@ -64,8 +65,26 @@ func main() {
 
 	// Initialize power monitoring if configured
 	var powerWatcher *watcher.Watcher
+	var statsDB *stats.DB
 	if cfg.IsPowerMonitoringEnabled() {
 		logger.Info("Power monitoring enabled for entity: %s", cfg.WatchedEntityID)
+
+		// Initialize statistics database if enabled
+		var statsRecorder *stats.Recorder
+		if cfg.StatsEnabled {
+			logger.Info("Statistics enabled, database: %s", cfg.StatsDBPath)
+			statsDB, err = stats.NewDB(cfg.StatsDBPath)
+			if err != nil {
+				logger.Fatal("Failed to initialize statistics database: %v", err)
+			}
+			statsRecorder = stats.NewRecorder(statsDB, cfg.WatchedEntityID)
+			logger.Info("Statistics initialized successfully")
+
+			// Provide stats to bot for /stats command
+			telegramBot.SetStatsProvider(statsRecorder, statsDB)
+		} else {
+			logger.Info("Statistics disabled")
+		}
 
 		// Initialize WebSocket client for real-time events
 		wsClient := homeassistant.NewWSClient(cfg.HAApiURL, cfg.HAToken)
@@ -77,7 +96,7 @@ func main() {
 		}
 
 		// Initialize power watcher
-		powerWatcher = watcher.NewWatcher(cfg, wsClient, haClient, notifSvc)
+		powerWatcher = watcher.NewWatcher(cfg, wsClient, haClient, notifSvc, statsRecorder)
 
 		// Start power watcher in a separate goroutine
 		go func() {
@@ -102,6 +121,15 @@ func main() {
 	if powerWatcher != nil {
 		powerWatcher.Stop()
 		logger.Info("Power watcher stopped")
+	}
+
+	// Close statistics database if open
+	if statsDB != nil {
+		if err := statsDB.Close(); err != nil {
+			logger.Error("Failed to close statistics database: %v", err)
+		} else {
+			logger.Info("Statistics database closed")
+		}
 	}
 
 	// Stop Telegram bot

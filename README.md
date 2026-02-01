@@ -2,6 +2,13 @@
 
 🔌 Telegram bot for monitoring power grid status in Home Assistant with automatic notifications about power outages and restorations.
 
+## 🆕 Beta Version Available!
+
+We now offer **two versions** you can install side-by-side:
+
+- **Stable** (v0.3.1) - Production-ready, proven features
+- **Beta** (v0.4.0-beta) - New features in testing: **Power duration statistics**! 📊
+
 ## Features
 
 - ⚡ **Real-time monitoring** - WebSocket-based power state tracking

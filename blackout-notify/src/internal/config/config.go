@@ -27,6 +27,10 @@ type Config struct {
 	NextOffSensorID     string  // Entity ID of sensor with next power off time
 	PauseEntityID       string  // Entity ID of input_boolean to pause notifications
 
+	// Statistics settings
+	StatsEnabled bool   // Enable power duration statistics
+	StatsDBPath  string // Path to SQLite database
+
 	// Timezone for formatting
 	Timezone string
 }
@@ -45,7 +49,12 @@ func Load() (*Config, error) {
 		NextOnSensorID:  os.Getenv("NEXT_ON_SENSOR_ID"),
 		NextOffSensorID: os.Getenv("NEXT_OFF_SENSOR_ID"),
 		PauseEntityID:   getEnvOrDefault("PAUSE_ENTITY_ID", "input_boolean.pause_power_notifications"),
-		Timezone:        getEnvOrDefault("TIMEZONE", "Europe/Kyiv"),
+
+		// Statistics settings
+		StatsEnabled: getEnvAsBool("STATS_ENABLED", true),
+		StatsDBPath:  getEnvOrDefault("STATS_DB_PATH", "/data/power_stats.db"),
+
+		Timezone: getEnvOrDefault("TIMEZONE", "Europe/Kyiv"),
 	}
 
 	// Parse allowed chat IDs
@@ -99,6 +108,15 @@ func getEnvAsInt(key string, defaultValue int) int {
 	if value := os.Getenv(key); value != "" {
 		if intValue, err := strconv.Atoi(value); err == nil {
 			return intValue
+		}
+	}
+	return defaultValue
+}
+
+func getEnvAsBool(key string, defaultValue bool) bool {
+	if value := os.Getenv(key); value != "" {
+		if boolValue, err := strconv.ParseBool(value); err == nil {
+			return boolValue
 		}
 	}
 	return defaultValue

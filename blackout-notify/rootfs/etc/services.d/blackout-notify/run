@@ -19,6 +19,10 @@ export NEXT_OFF_SENSOR_ID=$(bashio::config 'next_off_sensor_id')
 export PAUSE_ENTITY_ID=$(bashio::config 'pause_entity_id')
 export TIMEZONE=$(bashio::config 'timezone')
 
+# Statistics settings
+export STATS_ENABLED=$(bashio::config 'stats_enabled')
+export STATS_DB_PATH="/data/power_stats.db"
+
 # Home Assistant API URL and token
 # SUPERVISOR_TOKEN is automatically available in add-on container
 export HA_API_URL="http://supervisor/core/api"

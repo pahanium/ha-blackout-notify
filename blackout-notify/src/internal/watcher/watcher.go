@@ -9,6 +9,7 @@ import (
 	"github.com/yourusername/haaddon/telegram-bot/internal/homeassistant"
 	"github.com/yourusername/haaddon/telegram-bot/internal/logger"
 	"github.com/yourusername/haaddon/telegram-bot/internal/notifications"
+	"github.com/yourusername/haaddon/telegram-bot/internal/stats"
 )
 
 // PowerState represents power status
@@ -26,6 +27,7 @@ type Watcher struct {
 	wsClient           *homeassistant.WSClient
 	haClient           *homeassistant.Client
 	notifSvc           *notifications.Service
+	statsRecorder      *stats.Recorder
 	lastState          PowerState
 	lastNextOnTime     *time.Time
 	lastNextOffTime    *time.Time
@@ -41,14 +43,16 @@ func NewWatcher(
 	wsClient *homeassistant.WSClient,
 	haClient *homeassistant.Client,
 	notifSvc *notifications.Service,
+	statsRecorder *stats.Recorder,
 ) *Watcher {
 	return &Watcher{
-		config:       cfg,
-		wsClient:     wsClient,
-		haClient:     haClient,
-		notifSvc:     notifSvc,
-		lastState:    PowerStateUnknown,
-		debounceTime: 5 * time.Second, // Debounce to avoid rapid state changes
+		config:        cfg,
+		wsClient:      wsClient,
+		haClient:      haClient,
+		notifSvc:      notifSvc,
+		statsRecorder: statsRecorder,
+		lastState:     PowerStateUnknown,
+		debounceTime:  5 * time.Second, // Debounce to avoid rapid state changes
 	}
 }
 
@@ -134,8 +138,16 @@ func (w *Watcher) handleStateChange(ctx context.Context, oldState, newState *hom
 	// Update state
 	w.mu.Lock()
 	w.lastState = newPowerState
-	w.lastChange = time.Now()
+	changeTime := time.Now()
+	w.lastChange = changeTime
 	w.mu.Unlock()
+
+	// Record state change in statistics (if enabled and recorder available)
+	if w.statsRecorder != nil {
+		if err := w.statsRecorder.RecordStateChange(ctx, string(newPowerState), changeTime); err != nil {
+			logger.Error("Failed to record state change in statistics: %v", err)
+		}
+	}
 
 	// Skip notification if transitioning from unknown state
 	if previousState == PowerStateUnknown {
@@ -161,6 +173,11 @@ func (w *Watcher) GetCurrentState() PowerState {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.lastState
+}
+
+// GetStatsRecorder returns the statistics recorder (can be nil if disabled)
+func (w *Watcher) GetStatsRecorder() *stats.Recorder {
+	return w.statsRecorder
 }
 
 // Stop stops the watcher

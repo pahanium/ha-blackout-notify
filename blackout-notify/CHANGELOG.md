@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0] - 2026-02-01
+
+### Added
+- **Power duration statistics**: SQLite-based tracking of power on/off durations
+  - Persistent storage in `/data/power_stats.db` (survives add-on restarts and updates)
+  - Automatic duration calculation for each state change
+  - `/stats` command to view statistics (today/week/month) with Ukrainian localization
+  - Query methods for daily, weekly, and monthly aggregations
+  - Support for current ongoing state duration display
+- **Statistics configuration**: `stats_enabled` option (default: true)
+- **Data persistence**: Added `data:rw` volume mapping for statistics storage
+- **Comprehensive test coverage**: Unit tests for all stats functionality using in-memory SQLite
+- Pure Go SQLite driver (`modernc.org/sqlite`) - no CGO dependencies required
+
+### Changed
+- Watcher now optionally records state changes to statistics database
+- Bot can display power statistics via `/stats` command
+- Updated `/help` command to include statistics usage
+- Enhanced shutdown process to properly close database connections
+
+### Technical
+- New package: `internal/stats` with `db.go`, `recorder.go`, `query.go`
+- Database schema with `power_events` table and optimized indexes
+- Thread-safe state recording with proper timestamp handling
+- Support for both RFC3339 and standard SQLite timestamp formats
+
 ## [0.3.1] - 2026-01-04
 
 ### Fixed

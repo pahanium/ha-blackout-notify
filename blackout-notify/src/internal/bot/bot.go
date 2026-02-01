@@ -4,19 +4,23 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/yourusername/haaddon/telegram-bot/internal/config"
 	"github.com/yourusername/haaddon/telegram-bot/internal/homeassistant"
 	"github.com/yourusername/haaddon/telegram-bot/internal/logger"
+	"github.com/yourusername/haaddon/telegram-bot/internal/stats"
 )
 
 // Bot represents a Telegram bot
 type Bot struct {
-	api      *tgbotapi.BotAPI
-	config   *config.Config
-	haClient *homeassistant.Client
-	stopChan chan struct{}
+	api           *tgbotapi.BotAPI
+	config        *config.Config
+	haClient      *homeassistant.Client
+	statsRecorder *stats.Recorder
+	statsDB       *stats.DB
+	stopChan      chan struct{}
 }
 
 // New creates a new Telegram bot
@@ -39,6 +43,12 @@ func New(cfg *config.Config, haClient *homeassistant.Client) (*Bot, error) {
 // GetAPI returns the underlying Telegram Bot API for use by other services
 func (b *Bot) GetAPI() *tgbotapi.BotAPI {
 	return b.api
+}
+
+// SetStatsProvider sets the statistics provider for the bot
+func (b *Bot) SetStatsProvider(recorder *stats.Recorder, db *stats.DB) {
+	b.statsRecorder = recorder
+	b.statsDB = db
 }
 
 // Start starts processing messages
@@ -103,6 +113,8 @@ func (b *Bot) handleMessage(ctx context.Context, message *tgbotapi.Message) {
 		response = b.handleHelp()
 	case "status":
 		response, err = b.handleStatus(ctx)
+	case "stats":
+		response, err = b.handleStats(ctx, args)
 	case "entities":
 		response, err = b.handleEntities(ctx, args)
 	case "state":
@@ -149,6 +161,7 @@ func (b *Bot) handleHelp() string {
 
 *General:*
 /status - Home Assistant status
+/stats [period] - Power statistics (today/week/month)
 /chatid - Show your chat ID
 
 *Entities:*
@@ -157,13 +170,14 @@ func (b *Bot) handleHelp() string {
 
 *Control:*
 /turn_on <entity_id> - Turn on entity
-/turn_off <entity_id> - Turn off entity  
+/turn_off <entity_id> - Turn off entity
 /toggle <entity_id> - Toggle entity
 
 *Examples:*
 ` + "`/entities light`" + `
 ` + "`/state light.living_room`" + `
-` + "`/turn_on switch.bedroom_fan`"
+` + "`/turn_on switch.bedroom_fan`" + `
+` + "`/stats week`"
 }
 
 func (b *Bot) handleStatus(ctx context.Context) (string, error) {
@@ -321,4 +335,109 @@ func getStateIcon(state string) string {
 	default:
 		return "📍"
 	}
+}
+
+func (b *Bot) handleStats(ctx context.Context, args string) (string, error) {
+	// Check if statistics are enabled
+	if b.statsRecorder == nil || b.statsDB == nil {
+		return "📊 Статистика вимкнена.\n\nДля увімкнення встановіть `stats_enabled: true` у конфігурації add-on.", nil
+	}
+
+	// Parse period argument
+	period := strings.ToLower(strings.TrimSpace(args))
+	if period == "" {
+		period = "today"
+	}
+
+	// Get timezone from config
+	location, err := time.LoadLocation(b.config.Timezone)
+	if err != nil {
+		logger.Warn("Failed to load timezone %s, using UTC: %v", b.config.Timezone, err)
+		location = time.UTC
+	}
+
+	// Query statistics
+	query := stats.NewQuery(b.statsDB, b.config.WatchedEntityID)
+	var periodStats *stats.PeriodStats
+
+	switch period {
+	case "today", "сьогодні":
+		periodStats, err = query.GetStatsToday(ctx, location)
+		if err != nil {
+			return "", fmt.Errorf("не вдалось отримати статистику: %w", err)
+		}
+	case "week", "тиждень":
+		periodStats, err = query.GetStatsWeek(ctx, location)
+		if err != nil {
+			return "", fmt.Errorf("не вдалось отримати статистику: %w", err)
+		}
+	case "month", "місяць":
+		periodStats, err = query.GetStatsMonth(ctx, location)
+		if err != nil {
+			return "", fmt.Errorf("не вдалось отримати статистику: %w", err)
+		}
+	default:
+		return fmt.Sprintf("❌ Невідомий період: %s\n\nВикористовуйте: today, week, month", period), nil
+	}
+
+	// Get current state duration
+	currentState, currentDuration, err := b.statsRecorder.GetCurrentStateDuration(ctx)
+	if err != nil {
+		return "", fmt.Errorf("не вдалось отримати поточний стан: %w", err)
+	}
+
+	// Format response
+	var periodName string
+	switch period {
+	case "today", "сьогодні":
+		periodName = "Сьогодні"
+	case "week", "тиждень":
+		periodName = "За тиждень"
+	case "month", "місяць":
+		periodName = "За місяць"
+	}
+
+	response := fmt.Sprintf("📊 *Статистика: %s*\n\n", periodName)
+
+	// Power on statistics
+	if periodStats.TotalOnSeconds > 0 {
+		response += fmt.Sprintf("⚡ *Світло було:* %s\n", stats.FormatDuration(periodStats.TotalOnSeconds))
+		if periodStats.OnCount > 0 {
+			avgOn := periodStats.TotalOnSeconds / int64(periodStats.OnCount)
+			response += fmt.Sprintf("   Середня тривалість: %s (%d разів)\n", stats.FormatDuration(avgOn), periodStats.OnCount)
+		}
+	} else {
+		response += "⚡ *Світло було:* немає даних\n"
+	}
+
+	response += "\n"
+
+	// Power off statistics
+	if periodStats.TotalOffSeconds > 0 {
+		response += fmt.Sprintf("🔌 *Світла не було:* %s\n", stats.FormatDuration(periodStats.TotalOffSeconds))
+		if periodStats.OffCount > 0 {
+			avgOff := periodStats.TotalOffSeconds / int64(periodStats.OffCount)
+			response += fmt.Sprintf("   Середня тривалість: %s (%d разів)\n", stats.FormatDuration(avgOff), periodStats.OffCount)
+		}
+	} else {
+		response += "🔌 *Світла не було:* немає даних\n"
+	}
+
+	// Current state
+	if currentState != "unknown" && currentDuration > 0 {
+		response += "\n"
+		stateIcon := "⚡"
+		stateName := "Світло є"
+		if currentState == "off" {
+			stateIcon = "🔌"
+			stateName = "Світла немає"
+		}
+		currentDurationSeconds := int64(currentDuration.Seconds())
+		response += fmt.Sprintf("%s *%s:* %s\n", stateIcon, stateName, stats.FormatDuration(currentDurationSeconds))
+	}
+
+	// Add usage instructions
+	response += "\n_Використання:_\n`/stats today` - за сьогодні\n`/stats week` - за тиждень\n`/stats month` - за місяць"
+
+	return response, nil
 }
