@@ -27,13 +27,17 @@ type Config struct {
 	NextOffSensorID     string  // Entity ID of sensor with next power off time
 	PauseEntityID       string  // Entity ID of input_boolean to pause notifications
 
-	// Statistics settings
-	StatsEnabled bool   // Enable power duration statistics
-	StatsDBPath  string // Path to SQLite database
+	// Statistics settings (always enabled)
+	StatsDBPath string // Path to SQLite database
 
 	// Timezone for formatting
 	Timezone string
 }
+
+const (
+	// DefaultStatsDBPath is the default path for statistics database
+	DefaultStatsDBPath = "/data/power_stats.db"
+)
 
 // Load loads configuration from environment variables
 func Load() (*Config, error) {
@@ -50,9 +54,8 @@ func Load() (*Config, error) {
 		NextOffSensorID: os.Getenv("NEXT_OFF_SENSOR_ID"),
 		PauseEntityID:   getEnvOrDefault("PAUSE_ENTITY_ID", "input_boolean.pause_power_notifications"),
 
-		// Statistics settings
-		StatsEnabled: getEnvAsBool("STATS_ENABLED", true),
-		StatsDBPath:  getEnvOrDefault("STATS_DB_PATH", "/data/power_stats.db"),
+		// Statistics settings (always enabled)
+		StatsDBPath: getEnvOrDefault("STATS_DB_PATH", DefaultStatsDBPath),
 
 		Timezone: getEnvOrDefault("TIMEZONE", "Europe/Kyiv"),
 	}

@@ -142,10 +142,21 @@ func (w *Watcher) handleStateChange(ctx context.Context, oldState, newState *hom
 	w.lastChange = changeTime
 	w.mu.Unlock()
 
-	// Record state change in statistics (if enabled and recorder available)
+	// Record state change in statistics and get previous state duration
+	var previousStateDuration int64 = 0
 	if w.statsRecorder != nil {
+		// Record new state
 		if err := w.statsRecorder.RecordStateChange(ctx, string(newPowerState), changeTime); err != nil {
 			logger.Error("Failed to record state change in statistics: %v", err)
+		}
+
+		// Get duration of the state that just ended
+		prevState, duration, err := w.statsRecorder.GetLastEventDuration(ctx)
+		if err != nil {
+			logger.Warn("Failed to get last event duration: %v", err)
+		} else if prevState == string(previousState) && duration > 0 {
+			previousStateDuration = duration
+			logger.Debug("Previous state (%s) lasted %d seconds", prevState, duration)
 		}
 	}
 
@@ -155,14 +166,14 @@ func (w *Watcher) handleStateChange(ctx context.Context, oldState, newState *hom
 		return
 	}
 
-	// Send notification based on new state
+	// Send notification based on new state with duration
 	switch newPowerState {
 	case PowerStateOn:
-		if err := w.notifSvc.NotifyPowerOn(ctx); err != nil {
+		if err := w.notifSvc.NotifyPowerOn(ctx, previousStateDuration); err != nil {
 			logger.Error("Failed to send power on notification: %v", err)
 		}
 	case PowerStateOff:
-		if err := w.notifSvc.NotifyPowerOff(ctx); err != nil {
+		if err := w.notifSvc.NotifyPowerOff(ctx, previousStateDuration); err != nil {
 			logger.Error("Failed to send power off notification: %v", err)
 		}
 	}

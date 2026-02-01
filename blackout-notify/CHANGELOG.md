@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.2-beta] - 2026-02-01
+
+### Changed
+- 📊 **Statistics now always enabled** - removed `stats_enabled` option, statistics database is always initialized
+- 💬 **Message improvements**:
+  - All Ukrainian messages moved to `messages.go` constants for better maintainability
+  - Power notifications now show duration of previous state (e.g., "Світла не було 2год 20хв")
+  - Duration displayed only if > 60 seconds to avoid clutter
+  - Duration rounded to nearest minute for better readability
+  - Icons moved directly into message constants (removed separate icon constants)
+  - Compact duration format without spaces: "6год 25хв" instead of "6 год 25 хв"
+
+### Technical
+- Added `GetLastEventDuration()` method to stats Recorder
+- Updated `NotifyPowerOn/Off` signatures to accept duration parameter
+- Watcher now retrieves and passes previous state duration to notifications
+- Removed `StatsEnabled` config field - statistics always initialized
+- Simplified main.go initialization logic (always create statsDB/statsRecorder)
+
 ## [0.4.0] - 2026-02-01
 
 ### Added

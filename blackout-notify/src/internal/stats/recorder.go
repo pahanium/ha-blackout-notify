@@ -116,6 +116,27 @@ func (r *Recorder) getLastEvent(ctx context.Context) (*PowerEvent, error) {
 	return event, nil
 }
 
+// GetLastEventDuration returns the state and duration of the last recorded event
+// Returns state, duration in seconds, and error
+// If no events exist or duration is not set, returns 0 for duration
+func (r *Recorder) GetLastEventDuration(ctx context.Context) (state string, durationSeconds int64, err error) {
+	lastEvent, err := r.getLastEvent(ctx)
+	if err == sql.ErrNoRows {
+		// No events yet
+		return "", 0, nil
+	}
+	if err != nil {
+		return "", 0, fmt.Errorf("failed to get last event: %w", err)
+	}
+
+	// First event has no duration
+	if lastEvent.DurationSeconds == nil {
+		return lastEvent.State, 0, nil
+	}
+
+	return lastEvent.State, *lastEvent.DurationSeconds, nil
+}
+
 // GetCurrentStateDuration returns how long the current state has been active
 func (r *Recorder) GetCurrentStateDuration(ctx context.Context) (string, time.Duration, error) {
 	lastEvent, err := r.getLastEvent(ctx)

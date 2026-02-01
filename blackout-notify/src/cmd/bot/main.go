@@ -69,22 +69,16 @@ func main() {
 	if cfg.IsPowerMonitoringEnabled() {
 		logger.Info("Power monitoring enabled for entity: %s", cfg.WatchedEntityID)
 
-		// Initialize statistics database if enabled
-		var statsRecorder *stats.Recorder
-		if cfg.StatsEnabled {
-			logger.Info("Statistics enabled, database: %s", cfg.StatsDBPath)
-			statsDB, err = stats.NewDB(cfg.StatsDBPath)
-			if err != nil {
-				logger.Fatal("Failed to initialize statistics database: %v", err)
-			}
-			statsRecorder = stats.NewRecorder(statsDB, cfg.WatchedEntityID)
-			logger.Info("Statistics initialized successfully")
-
-			// Provide stats to bot for /stats command
-			telegramBot.SetStatsProvider(statsRecorder, statsDB)
-		} else {
-			logger.Info("Statistics disabled")
+		// Initialize statistics database (always enabled)
+		logger.Info("Initializing statistics database: %s", cfg.StatsDBPath)
+		statsDB, err = stats.NewDB(cfg.StatsDBPath)
+		if err != nil {
+			logger.Fatal("Failed to initialize statistics database: %v", err)
 		}
+		statsRecorder := stats.NewRecorder(statsDB, cfg.WatchedEntityID)
+
+		// Provide stats to bot for /stats command
+		telegramBot.SetStatsProvider(statsRecorder, statsDB)
 
 		// Initialize WebSocket client for real-time events
 		wsClient := homeassistant.NewWSClient(cfg.HAApiURL, cfg.HAToken)

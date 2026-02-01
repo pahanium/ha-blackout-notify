@@ -2,7 +2,7 @@
 # Documentation: https://developers.home-assistant.io/docs/add-ons/configuration
 
 name: "Blackout Notify (Beta)"
-version: "0.4.1-beta"
+version: "0.4.2-beta"
 slug: "blackout_notify_beta"
 description: "Power grid monitoring with Telegram notifications for outages and restoration (Beta version with latest features)"
 url: "https://github.com/pahanium/ha-blackout-notify"
@@ -41,7 +41,6 @@ options:
   next_off_sensor_id: ""
   pause_entity_id: "input_boolean.pause_power_notifications"
   timezone: "Europe/Kyiv"
-  stats_enabled: true
 
 # Options validation schema
 schema:
@@ -55,7 +54,6 @@ schema:
   next_off_sensor_id: str?
   pause_entity_id: str?
   timezone: str?
-  stats_enabled: bool?
 
 # Minimum Home Assistant version
 homeassistant: "2024.1.0"

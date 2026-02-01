@@ -338,11 +338,6 @@ func getStateIcon(state string) string {
 }
 
 func (b *Bot) handleStats(ctx context.Context, args string) (string, error) {
-	// Check if statistics are enabled
-	if b.statsRecorder == nil || b.statsDB == nil {
-		return "📊 Статистика вимкнена.\n\nДля увімкнення встановіть `stats_enabled: true` у конфігурації add-on.", nil
-	}
-
 	// Parse period argument
 	period := strings.ToLower(strings.TrimSpace(args))
 	if period == "" {

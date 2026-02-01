@@ -12,17 +12,6 @@ import (
 	"github.com/yourusername/haaddon/telegram-bot/internal/logger"
 )
 
-// Icons for messages
-const (
-	IconPowerOn  = "💡"
-	IconPowerOff = "🔌"
-	IconTime     = "🕐"
-	IconSchedule = "📅"
-	IconWarning  = "⚠️"
-	IconPause    = "⏸️"
-	IconUpdate   = "🔄"
-)
-
 // Service handles power notifications
 type Service struct {
 	bot      *tgbotapi.BotAPI
@@ -48,7 +37,8 @@ func NewService(bot *tgbotapi.BotAPI, cfg *config.Config, haClient *homeassistan
 }
 
 // NotifyPowerOn sends notification when power is restored
-func (s *Service) NotifyPowerOn(ctx context.Context) error {
+// previousOffDurationSec - how long power was off in seconds (0 if unknown)
+func (s *Service) NotifyPowerOn(ctx context.Context, previousOffDurationSec int64) error {
 	if s.isPaused(ctx) {
 		logger.Debug("Notifications paused, skipping power on notification")
 		return nil
@@ -57,7 +47,14 @@ func (s *Service) NotifyPowerOn(ctx context.Context) error {
 	now := time.Now().In(s.location)
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("%s *Світло повернулось!*", IconPowerOn))
+	sb.WriteString(MsgPowerOn)
+
+	// Add duration if > 60 seconds and < 24 hours
+	// (longer durations likely mean the bot was not running and may have missed events)
+	if previousOffDurationSec > 60 && previousOffDurationSec < 86400 {
+		durationStr := formatDuration(time.Duration(previousOffDurationSec) * time.Second)
+		sb.WriteString(fmt.Sprintf("\n\n%s", fmt.Sprintf(MsgWasOff, durationStr)))
+	}
 
 	// Get next scheduled off time
 	if s.config.NextOffSensorID != "" {
@@ -66,10 +63,9 @@ func (s *Service) NotifyPowerOn(ctx context.Context) error {
 			logger.Warn("Failed to get next off time: %v", err)
 		} else if nextOff != nil {
 			duration := nextOff.Sub(now)
-			sb.WriteString(fmt.Sprintf("\n\n%s Відключення через *%s* (%s)\n_за даними Yasno_",
-				IconSchedule,
-				formatDuration(duration),
-				nextOff.In(s.location).Format("15:04")))
+			sb.WriteString(fmt.Sprintf("\n\n%s\n%s",
+				fmt.Sprintf(MsgScheduleOffIn, formatDuration(duration), nextOff.In(s.location).Format("15:04")),
+				MsgScheduleSource))
 		}
 	}
 
@@ -77,7 +73,8 @@ func (s *Service) NotifyPowerOn(ctx context.Context) error {
 }
 
 // NotifyPowerOff sends notification when power is lost
-func (s *Service) NotifyPowerOff(ctx context.Context) error {
+// previousOnDurationSec - how long power was on in seconds (0 if unknown)
+func (s *Service) NotifyPowerOff(ctx context.Context, previousOnDurationSec int64) error {
 	if s.isPaused(ctx) {
 		logger.Debug("Notifications paused, skipping power off notification")
 		return nil
@@ -86,7 +83,14 @@ func (s *Service) NotifyPowerOff(ctx context.Context) error {
 	now := time.Now().In(s.location)
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("%s *Світло вимкнено*", IconPowerOff))
+	sb.WriteString(MsgPowerOff)
+
+	// Add duration if > 60 seconds and < 24 hours
+	// (longer durations likely mean the bot was not running and may have missed events)
+	if previousOnDurationSec > 60 && previousOnDurationSec < 86400 {
+		durationStr := formatDuration(time.Duration(previousOnDurationSec) * time.Second)
+		sb.WriteString(fmt.Sprintf("\n\n%s", fmt.Sprintf(MsgWasOn, durationStr)))
+	}
 
 	// Get next scheduled on time
 	if s.config.NextOnSensorID != "" {
@@ -95,10 +99,9 @@ func (s *Service) NotifyPowerOff(ctx context.Context) error {
 			logger.Warn("Failed to get next on time: %v", err)
 		} else if nextOn != nil {
 			duration := nextOn.Sub(now)
-			sb.WriteString(fmt.Sprintf("\n\n%s Заживлення через *%s* (%s)\n_за даними Yasno_",
-				IconSchedule,
-				formatDuration(duration),
-				nextOn.In(s.location).Format("15:04")))
+			sb.WriteString(fmt.Sprintf("\n\n%s\n%s",
+				fmt.Sprintf(MsgScheduleOnIn, formatDuration(duration), nextOn.In(s.location).Format("15:04")),
+				MsgScheduleSource))
 		}
 	}
 
@@ -208,27 +211,23 @@ func (s *Service) NotifyScheduleChanged(ctx context.Context, scheduleType string
 	now := time.Now().In(s.location)
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("%s *Графік оновлено*\n\n", IconUpdate))
+	sb.WriteString(fmt.Sprintf("%s\n\n", MsgScheduleUpdate))
 
 	if scheduleType == "on" {
 		if newTime != nil {
 			duration := newTime.Sub(now)
-			sb.WriteString(fmt.Sprintf("%s Заживлення через *%s* (%s)\n",
-				IconSchedule,
-				formatDuration(duration),
-				newTime.In(s.location).Format("15:04")))
+			sb.WriteString(fmt.Sprintf("%s\n",
+				fmt.Sprintf(MsgScheduleOnIn, formatDuration(duration), newTime.In(s.location).Format("15:04"))))
 		}
 	} else {
 		if newTime != nil {
 			duration := newTime.Sub(now)
-			sb.WriteString(fmt.Sprintf("%s Відключення через *%s* (%s)\n",
-				IconSchedule,
-				formatDuration(duration),
-				newTime.In(s.location).Format("15:04")))
+			sb.WriteString(fmt.Sprintf("%s\n",
+				fmt.Sprintf(MsgScheduleOffIn, formatDuration(duration), newTime.In(s.location).Format("15:04"))))
 		}
 	}
 
-	sb.WriteString("_за даними Yasno_")
+	sb.WriteString(MsgScheduleSource)
 
 	return s.sendToAllChats(sb.String())
 }
@@ -238,22 +237,25 @@ func (s *Service) GetScheduledTime(ctx context.Context, sensorID string) (*time.
 	return s.getScheduledTime(ctx, sensorID)
 }
 
-// formatDuration formats duration in human-readable Ukrainian
+// formatDuration formats duration in human-readable Ukrainian, rounded to minutes
+// Format: "6год 25хв" (no spaces to save message width)
 func formatDuration(d time.Duration) string {
 	if d < 0 {
 		return "невідомо"
 	}
 
-	hours := int(d.Hours())
-	minutes := int(d.Minutes()) % 60
+	// Round to nearest minute
+	totalMinutes := int(d.Round(time.Minute).Minutes())
+	hours := totalMinutes / 60
+	minutes := totalMinutes % 60
 
 	if hours == 0 {
-		return fmt.Sprintf("%d хв", minutes)
+		return fmt.Sprintf("%dхв", minutes)
 	}
 
 	if minutes == 0 {
-		return fmt.Sprintf("%d год", hours)
+		return fmt.Sprintf("%dгод", hours)
 	}
 
-	return fmt.Sprintf("%d год %d хв", hours, minutes)
+	return fmt.Sprintf("%dгод %dхв", hours, minutes)
 }
