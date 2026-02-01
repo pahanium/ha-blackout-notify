@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.4-beta] - 2026-02-01
+
+### Changed
+- 🕐 **Duration message icon** - changed from stopwatch (⏱) to clock with white background (🕐)
+  - More visually appealing and clearer indicator for duration information
+
 ## [0.4.3-beta] - 2026-02-01
 
 ### Fixed
