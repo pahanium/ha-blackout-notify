@@ -42,9 +42,15 @@ func TestRecorder_RecordStateChange(t *testing.T) {
 
 	// Record first event (no previous state)
 	now := time.Now()
-	err = recorder.RecordStateChange(ctx, "on", now)
+	prevState, prevDuration, err := recorder.RecordStateChange(ctx, "on", now)
 	if err != nil {
 		t.Fatalf("Failed to record first state change: %v", err)
+	}
+	if prevState != "" {
+		t.Errorf("Expected empty previous state for first event, got '%s'", prevState)
+	}
+	if prevDuration != 0 {
+		t.Errorf("Expected 0 previous duration for first event, got %d", prevDuration)
 	}
 
 	// Verify event was recorded
@@ -62,9 +68,16 @@ func TestRecorder_RecordStateChange(t *testing.T) {
 	// Record second event (should calculate duration)
 	time.Sleep(100 * time.Millisecond)
 	now2 := now.Add(5 * time.Minute)
-	err = recorder.RecordStateChange(ctx, "off", now2)
+	prevState, prevDuration, err = recorder.RecordStateChange(ctx, "off", now2)
 	if err != nil {
 		t.Fatalf("Failed to record second state change: %v", err)
+	}
+	if prevState != "on" {
+		t.Errorf("Expected previous state 'on', got '%s'", prevState)
+	}
+	expectedDuration := int64(5 * 60)
+	if prevDuration != expectedDuration {
+		t.Errorf("Expected previous duration %d seconds, got %d", expectedDuration, prevDuration)
 	}
 
 	// Verify second event has duration
@@ -78,9 +91,9 @@ func TestRecorder_RecordStateChange(t *testing.T) {
 	if lastEvent.DurationSeconds == nil {
 		t.Fatal("Expected duration to be set for second event")
 	}
-	expectedDuration := int64(5 * 60)
-	if *lastEvent.DurationSeconds != expectedDuration {
-		t.Errorf("Expected duration %d seconds, got %d", expectedDuration, *lastEvent.DurationSeconds)
+	expectedDuration2 := int64(5 * 60)
+	if *lastEvent.DurationSeconds != expectedDuration2 {
+		t.Errorf("Expected duration %d seconds, got %d", expectedDuration2, *lastEvent.DurationSeconds)
 	}
 }
 
@@ -108,7 +121,7 @@ func TestRecorder_GetCurrentStateDuration(t *testing.T) {
 
 	// Record an event
 	past := time.Now().Add(-10 * time.Minute)
-	err = recorder.RecordStateChange(ctx, "on", past)
+	_, _, err = recorder.RecordStateChange(ctx, "on", past)
 	if err != nil {
 		t.Fatalf("Failed to record state change: %v", err)
 	}
@@ -153,7 +166,7 @@ func TestQuery_GetStatsForPeriod(t *testing.T) {
 	}
 
 	for _, e := range events {
-		if err := recorder.RecordStateChange(ctx, e.state, e.time); err != nil {
+		if _, _, err := recorder.RecordStateChange(ctx, e.state, e.time); err != nil {
 			t.Fatalf("Failed to record event: %v", err)
 		}
 	}

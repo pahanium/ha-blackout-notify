@@ -53,7 +53,7 @@ func (s *Service) NotifyPowerOn(ctx context.Context, previousOffDurationSec int6
 	// (longer durations likely mean the bot was not running and may have missed events)
 	if previousOffDurationSec > 60 && previousOffDurationSec < 86400 {
 		durationStr := formatDuration(time.Duration(previousOffDurationSec) * time.Second)
-		sb.WriteString(fmt.Sprintf("\n\n%s", fmt.Sprintf(MsgWasOff, durationStr)))
+		sb.WriteString(fmt.Sprintf("\n%s", fmt.Sprintf(MsgWasOff, durationStr)))
 	}
 
 	// Get next scheduled off time
@@ -89,7 +89,7 @@ func (s *Service) NotifyPowerOff(ctx context.Context, previousOnDurationSec int6
 	// (longer durations likely mean the bot was not running and may have missed events)
 	if previousOnDurationSec > 60 && previousOnDurationSec < 86400 {
 		durationStr := formatDuration(time.Duration(previousOnDurationSec) * time.Second)
-		sb.WriteString(fmt.Sprintf("\n\n%s", fmt.Sprintf(MsgWasOn, durationStr)))
+		sb.WriteString(fmt.Sprintf("\n%s", fmt.Sprintf(MsgWasOn, durationStr)))
 	}
 
 	// Get next scheduled on time
@@ -132,10 +132,12 @@ func (s *Service) getScheduledTime(ctx context.Context, sensorID string) (*time.
 
 	var parsedTime time.Time
 	var parseErr error
+	var parsedFormat string
 
 	for _, format := range formats {
 		parsedTime, parseErr = time.Parse(format, entity.State)
 		if parseErr == nil {
+			parsedFormat = format
 			break
 		}
 	}
@@ -144,8 +146,10 @@ func (s *Service) getScheduledTime(ctx context.Context, sensorID string) (*time.
 		return nil, fmt.Errorf("failed to parse time '%s': %w", entity.State, parseErr)
 	}
 
-	// If only time was parsed (no date), use today's date
-	if parsedTime.Year() == 0 {
+	// If only time was parsed (no date), use today's date in local timezone
+	// Check if format was time-only (15:04:05 or 15:04)
+	isTimeOnly := parsedFormat == "15:04:05" || parsedFormat == "15:04"
+	if isTimeOnly || parsedTime.Year() == 0 {
 		now := time.Now().In(s.location)
 		parsedTime = time.Date(
 			now.Year(), now.Month(), now.Day(),
@@ -156,6 +160,9 @@ func (s *Service) getScheduledTime(ctx context.Context, sensorID string) (*time.
 		if parsedTime.Before(now) {
 			parsedTime = parsedTime.Add(24 * time.Hour)
 		}
+	} else {
+		// Convert to local timezone if it has a date
+		parsedTime = parsedTime.In(s.location)
 	}
 
 	return &parsedTime, nil
@@ -240,12 +247,19 @@ func (s *Service) GetScheduledTime(ctx context.Context, sensorID string) (*time.
 // formatDuration formats duration in human-readable Ukrainian, rounded to minutes
 // Format: "6год 25хв" (no spaces to save message width)
 func formatDuration(d time.Duration) string {
+	// If duration is in the past (negative), it's an error - don't show anything
 	if d < 0 {
 		return "невідомо"
 	}
 
 	// Round to nearest minute
 	totalMinutes := int(d.Round(time.Minute).Minutes())
+
+	// Handle edge case where rounding results in 0
+	if totalMinutes == 0 {
+		return "менше хвилини"
+	}
+
 	hours := totalMinutes / 60
 	minutes := totalMinutes % 60
 

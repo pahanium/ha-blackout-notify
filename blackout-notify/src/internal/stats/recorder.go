@@ -34,18 +34,24 @@ type PowerEvent struct {
 }
 
 // RecordStateChange records a power state change event
-func (r *Recorder) RecordStateChange(ctx context.Context, state string, changedAt time.Time) error {
+// Returns the previous state and its duration in seconds (0 if this is the first event)
+func (r *Recorder) RecordStateChange(ctx context.Context, state string, changedAt time.Time) (previousState string, previousDuration int64, err error) {
 	// Get the last event to calculate duration
 	lastEvent, err := r.getLastEvent(ctx)
 	if err != nil && err != sql.ErrNoRows {
-		return fmt.Errorf("failed to get last event: %w", err)
+		return "", 0, fmt.Errorf("failed to get last event: %w", err)
 	}
 
 	var durationSeconds *int64
+	var prevState string
+	var prevDuration int64
+
 	if lastEvent != nil {
 		// Calculate duration of the previous state
 		duration := int64(changedAt.Sub(lastEvent.ChangedAt).Seconds())
 		durationSeconds = &duration
+		prevState = lastEvent.State
+		prevDuration = duration
 		logger.Debug("State change detected: %s -> %s, previous state lasted %d seconds", lastEvent.State, state, duration)
 	} else {
 		logger.Debug("First state change recorded: %s", state)
@@ -59,11 +65,11 @@ func (r *Recorder) RecordStateChange(ctx context.Context, state string, changedA
 
 	_, err = r.db.conn.ExecContext(ctx, query, r.entityID, state, changedAt.UTC(), durationSeconds)
 	if err != nil {
-		return fmt.Errorf("failed to insert event: %w", err)
+		return "", 0, fmt.Errorf("failed to insert event: %w", err)
 	}
 
 	logger.Debug("Recorded power state change: entity=%s, state=%s, time=%s", r.entityID, state, changedAt.Format(time.RFC3339))
-	return nil
+	return prevState, prevDuration, nil
 }
 
 // getLastEvent retrieves the most recent power event

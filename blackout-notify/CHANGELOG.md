@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.3-beta] - 2026-02-01
+
+### Fixed
+- 🐛 **Duration tracking in notifications** - fixed bug where duration was not shown in power notifications
+  - Changed `RecordStateChange` to return previous state and duration
+  - Watcher now correctly retrieves duration before recording new state
+  - Duration was missing because `GetLastEventDuration` returned the newly recorded event instead of previous
+- 🧹 **Removed extra empty line** after power status message (was "Світло повернулось!\n\nСвітла не було X")
+- ⏰ **Fixed "невідомо" for next-day schedule times** - improved time parsing to correctly handle schedule times after midnight
+  - Added detection of time-only formats (15:04, 15:04:05)
+  - Correctly converts parsed times to local timezone
+  - Better handling of times that cross midnight boundary
+
+### Technical
+- `RecordStateChange()` now returns `(previousState string, previousDuration int64, err error)`
+- Updated all tests to handle new return signature
+- Improved `getScheduledTime()` logic to track which format was matched
+- Added edge case handling in `formatDuration()` for zero-minute durations
+
 ## [0.4.2-beta] - 2026-02-01
 
 ### Changed

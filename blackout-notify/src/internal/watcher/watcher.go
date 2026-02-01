@@ -145,15 +145,10 @@ func (w *Watcher) handleStateChange(ctx context.Context, oldState, newState *hom
 	// Record state change in statistics and get previous state duration
 	var previousStateDuration int64 = 0
 	if w.statsRecorder != nil {
-		// Record new state
-		if err := w.statsRecorder.RecordStateChange(ctx, string(newPowerState), changeTime); err != nil {
-			logger.Error("Failed to record state change in statistics: %v", err)
-		}
-
-		// Get duration of the state that just ended
-		prevState, duration, err := w.statsRecorder.GetLastEventDuration(ctx)
+		// Record new state and get previous state info
+		prevState, duration, err := w.statsRecorder.RecordStateChange(ctx, string(newPowerState), changeTime)
 		if err != nil {
-			logger.Warn("Failed to get last event duration: %v", err)
+			logger.Error("Failed to record state change in statistics: %v", err)
 		} else if prevState == string(previousState) && duration > 0 {
 			previousStateDuration = duration
 			logger.Debug("Previous state (%s) lasted %d seconds", prevState, duration)
