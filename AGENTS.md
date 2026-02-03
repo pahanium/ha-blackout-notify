@@ -248,7 +248,7 @@ go mod tidy
 ## Home Assistant Add-on Specifics
 
 ### File Structure
-- `config.yaml`: Add-on metadata, options schema, version (currently v0.4.1-beta)
+- `config.yaml`: Add-on metadata, options schema, version (currently v0.4.4)
 - `rootfs/etc/services.d/blackout-notify/run`: s6-overlay entry point using bashio
 - `Dockerfile`: Multi-stage build (golang:1.24-alpine → HA base image)
 
