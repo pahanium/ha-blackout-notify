@@ -2,7 +2,7 @@
 # Documentation: https://developers.home-assistant.io/docs/add-ons/configuration
 
 name: "Blackout Notify"
-version: "0.3.1"
+version: "0.4.4"
 slug: "blackout_notify"
 description: "Power grid monitoring with Telegram notifications for outages and restoration"
 url: "https://github.com/pahanium/ha-blackout-notify"
@@ -35,7 +35,6 @@ options:
   allowed_chat_ids: ""
   log_level: "info"
   polling_interval: 30
-  # Power monitoring settings
   notification_chat_ids: ""
   watched_entity_id: ""
   next_on_sensor_id: ""
@@ -49,7 +48,6 @@ schema:
   allowed_chat_ids: str?
   log_level: list(debug|info|warn|error)
   polling_interval: int(10,300)
-  # Power monitoring schema
   notification_chat_ids: str?
   watched_entity_id: str?
   next_on_sensor_id: str?
@@ -67,5 +65,6 @@ homeassistant: "2024.1.0"
 # Mappings
 map:
   - config:ro
+  - data:rw
 
 init: false

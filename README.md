@@ -6,6 +6,7 @@
 
 - ⚡ **Real-time monitoring** - WebSocket-based power state tracking
 - 📱 **Telegram notifications** - Instant alerts about power changes
+- 📊 **Power statistics** - Track power on/off durations with `/stats` command
 - 📅 **Schedule information** - Shows next planned power on/off times
 - ⏸️ **Notification pause** - Temporarily disable alerts via HA input_boolean
 - 🔒 **Security** - Chat ID whitelisting for access control

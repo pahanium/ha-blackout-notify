@@ -1,7 +1,7 @@
 # Multi-stage build for Go add-on
 # Stage 1: Build Go binary
 ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base:3.18
-FROM golang:1.21-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 # Install required packages for build
 RUN apk add --no-cache git ca-certificates tzdata

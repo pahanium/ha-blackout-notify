@@ -9,6 +9,7 @@ import (
 	"github.com/yourusername/haaddon/telegram-bot/internal/homeassistant"
 	"github.com/yourusername/haaddon/telegram-bot/internal/logger"
 	"github.com/yourusername/haaddon/telegram-bot/internal/notifications"
+	"github.com/yourusername/haaddon/telegram-bot/internal/stats"
 )
 
 // PowerState represents power status
@@ -26,6 +27,7 @@ type Watcher struct {
 	wsClient           *homeassistant.WSClient
 	haClient           *homeassistant.Client
 	notifSvc           *notifications.Service
+	statsRecorder      *stats.Recorder
 	lastState          PowerState
 	lastNextOnTime     *time.Time
 	lastNextOffTime    *time.Time
@@ -41,14 +43,16 @@ func NewWatcher(
 	wsClient *homeassistant.WSClient,
 	haClient *homeassistant.Client,
 	notifSvc *notifications.Service,
+	statsRecorder *stats.Recorder,
 ) *Watcher {
 	return &Watcher{
-		config:       cfg,
-		wsClient:     wsClient,
-		haClient:     haClient,
-		notifSvc:     notifSvc,
-		lastState:    PowerStateUnknown,
-		debounceTime: 5 * time.Second, // Debounce to avoid rapid state changes
+		config:        cfg,
+		wsClient:      wsClient,
+		haClient:      haClient,
+		notifSvc:      notifSvc,
+		statsRecorder: statsRecorder,
+		lastState:     PowerStateUnknown,
+		debounceTime:  5 * time.Second, // Debounce to avoid rapid state changes
 	}
 }
 
@@ -134,8 +138,22 @@ func (w *Watcher) handleStateChange(ctx context.Context, oldState, newState *hom
 	// Update state
 	w.mu.Lock()
 	w.lastState = newPowerState
-	w.lastChange = time.Now()
+	changeTime := time.Now()
+	w.lastChange = changeTime
 	w.mu.Unlock()
+
+	// Record state change in statistics and get previous state duration
+	var previousStateDuration int64 = 0
+	if w.statsRecorder != nil {
+		// Record new state and get previous state info
+		prevState, duration, err := w.statsRecorder.RecordStateChange(ctx, string(newPowerState), changeTime)
+		if err != nil {
+			logger.Error("Failed to record state change in statistics: %v", err)
+		} else if prevState == string(previousState) && duration > 0 {
+			previousStateDuration = duration
+			logger.Debug("Previous state (%s) lasted %d seconds", prevState, duration)
+		}
+	}
 
 	// Skip notification if transitioning from unknown state
 	if previousState == PowerStateUnknown {
@@ -143,14 +161,14 @@ func (w *Watcher) handleStateChange(ctx context.Context, oldState, newState *hom
 		return
 	}
 
-	// Send notification based on new state
+	// Send notification based on new state with duration
 	switch newPowerState {
 	case PowerStateOn:
-		if err := w.notifSvc.NotifyPowerOn(ctx); err != nil {
+		if err := w.notifSvc.NotifyPowerOn(ctx, previousStateDuration); err != nil {
 			logger.Error("Failed to send power on notification: %v", err)
 		}
 	case PowerStateOff:
-		if err := w.notifSvc.NotifyPowerOff(ctx); err != nil {
+		if err := w.notifSvc.NotifyPowerOff(ctx, previousStateDuration); err != nil {
 			logger.Error("Failed to send power off notification: %v", err)
 		}
 	}
@@ -161,6 +179,11 @@ func (w *Watcher) GetCurrentState() PowerState {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.lastState
+}
+
+// GetStatsRecorder returns the statistics recorder (can be nil if disabled)
+func (w *Watcher) GetStatsRecorder() *stats.Recorder {
+	return w.statsRecorder
 }
 
 // Stop stops the watcher

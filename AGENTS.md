@@ -1,6 +1,6 @@
 # Agent Guidelines for Blackout Notify
 
-Home Assistant add-on written in **Go** that monitors power grid status via HA WebSocket API and sends Telegram notifications for power outages/restorations. Packaged as a multi-arch Docker container.
+Home Assistant add-on written in **Go 1.24+** that monitors power grid status via HA WebSocket API and sends Telegram notifications for power outages/restorations. Packaged as a multi-arch Docker container.
 
 ## Build & Test Commands
 
@@ -22,12 +22,17 @@ go test -v ./...
 go test -v ./internal/config
 go test -v ./internal/homeassistant
 go test -v ./internal/watcher
+go test -v ./internal/stats
 
 # Run with race detector and coverage
 go test -v -race -coverprofile=coverage.txt ./...
 
 # Run single test function
 go test -v -run TestIsChatAllowed ./internal/config
+go test -v -run TestNormalizeState ./internal/watcher
+
+# Run specific test with short mode (skip slow tests)
+go test -v -short -run TestNewDB ./internal/stats
 ```
 
 ### Building
@@ -40,6 +45,21 @@ CGO_ENABLED=0 go build -ldflags="-w -s" -o ../bin/blackout-notify ./cmd/bot
 
 # Docker build for specific architecture (from repo root)
 ./scripts/docker-build.sh amd64    # or aarch64, armv7
+
+# Quick local build script (from repo root)
+./scripts/build.sh
+```
+
+### Linting
+```bash
+# Format code (required before commits)
+go fmt ./...
+
+# Vet code for suspicious constructs
+go vet ./...
+
+# Run both format and vet
+go fmt ./... && go vet ./...
 ```
 
 ### Dependencies
@@ -48,7 +68,10 @@ CGO_ENABLED=0 go build -ldflags="-w -s" -o ../bin/blackout-notify ./cmd/bot
 go mod tidy
 
 # Add new dependency
-go get github.com/package/name
+go get github.com/package/name@latest
+
+# Verify dependencies
+go mod verify
 
 # If go.sum is corrupted
 rm go.sum && go mod tidy
@@ -73,14 +96,15 @@ docker compose -f docker-compose.dev.yaml up --build
 ```
 cmd/bot/main.go          → Entry point: loads config, wires components, handles signals
 internal/config/         → Environment-based configuration (HA passes options as env vars)
-internal/bot/            → Telegram bot command handler
+internal/bot/            → Telegram bot command handler (/start, /status, /stats)
 internal/homeassistant/  → REST client + WebSocket client for HA API
 internal/watcher/        → Power state monitoring with debouncing
-internal/notifications/  → Notification formatting and delivery
-internal/logger/         → Simple leveled logging
+internal/notifications/  → Notification formatting and delivery (Ukrainian messages)
+internal/stats/          → SQLite-based power duration statistics (NEW in v0.4.0+)
+internal/logger/         → Simple leveled logging (Debug, Info, Warn, Error, Fatal)
 ```
 
-**Data flow**: `rootfs/run.sh` (bashio) → env vars → `config.Load()` → `main.go` creates `haClient`, `wsClient`, `bot`, `watcher`, `notifSvc` → watcher subscribes to HA WebSocket events → triggers notifications
+**Data flow**: `rootfs/run.sh` (bashio) → env vars → `config.Load()` → `main.go` creates `haClient`, `wsClient`, `bot`, `watcher`, `notifSvc`, `statsDB` → watcher subscribes to HA WebSocket events → triggers notifications + records stats
 
 ## Code Style Guidelines
 
@@ -224,9 +248,9 @@ go mod tidy
 ## Home Assistant Add-on Specifics
 
 ### File Structure
-- `config.yaml`: Add-on metadata, options schema, version
+- `config.yaml`: Add-on metadata, options schema, version (currently v0.4.4)
 - `rootfs/etc/services.d/blackout-notify/run`: s6-overlay entry point using bashio
-- `Dockerfile`: Multi-stage build (golang:1.21-alpine → HA base image)
+- `Dockerfile`: Multi-stage build (golang:1.24-alpine → HA base image)
 
 ### Updating Add-on
 When making changes:
@@ -237,6 +261,7 @@ When making changes:
 
 ### Pre-deployment Checklist
 - [ ] Tests pass: `go test ./...`
+- [ ] Code formatted: `go fmt ./...` and `go vet ./...`
 - [ ] Docker image builds: `./scripts/docker-build.sh amd64`
 - [ ] `config.yaml` has correct version
 - [ ] `CHANGELOG.md` updated
