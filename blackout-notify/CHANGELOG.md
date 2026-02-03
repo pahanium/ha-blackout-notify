@@ -2,75 +2,61 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.4.4-beta] - 2026-02-01
-
-### Changed
-- 🕐 **Duration message icon** - changed from stopwatch (⏱) to clock with white background (🕐)
-  - More visually appealing and clearer indicator for duration information
-
-## [0.4.3-beta] - 2026-02-01
-
-### Fixed
-- 🐛 **Duration tracking in notifications** - fixed bug where duration was not shown in power notifications
-  - Changed `RecordStateChange` to return previous state and duration
-  - Watcher now correctly retrieves duration before recording new state
-  - Duration was missing because `GetLastEventDuration` returned the newly recorded event instead of previous
-- 🧹 **Removed extra empty line** after power status message (was "Світло повернулось!\n\nСвітла не було X")
-- ⏰ **Fixed "невідомо" for next-day schedule times** - improved time parsing to correctly handle schedule times after midnight
-  - Added detection of time-only formats (15:04, 15:04:05)
-  - Correctly converts parsed times to local timezone
-  - Better handling of times that cross midnight boundary
-
-### Technical
-- `RecordStateChange()` now returns `(previousState string, previousDuration int64, err error)`
-- Updated all tests to handle new return signature
-- Improved `getScheduledTime()` logic to track which format was matched
-- Added edge case handling in `formatDuration()` for zero-minute durations
-
-## [0.4.2-beta] - 2026-02-01
-
-### Changed
-- 📊 **Statistics now always enabled** - removed `stats_enabled` option, statistics database is always initialized
-- 💬 **Message improvements**:
-  - All Ukrainian messages moved to `messages.go` constants for better maintainability
-  - Power notifications now show duration of previous state (e.g., "Світла не було 2год 20хв")
-  - Duration displayed only if > 60 seconds to avoid clutter
-  - Duration rounded to nearest minute for better readability
-  - Icons moved directly into message constants (removed separate icon constants)
-  - Compact duration format without spaces: "6год 25хв" instead of "6 год 25 хв"
-
-### Technical
-- Added `GetLastEventDuration()` method to stats Recorder
-- Updated `NotifyPowerOn/Off` signatures to accept duration parameter
-- Watcher now retrieves and passes previous state duration to notifications
-- Removed `StatsEnabled` config field - statistics always initialized
-- Simplified main.go initialization logic (always create statsDB/statsRecorder)
-
-## [0.4.0] - 2026-02-01
+## [0.4.4] - 2026-02-03
 
 ### Added
-- **Power duration statistics**: SQLite-based tracking of power on/off durations
+- 📊 **Power duration statistics tracking**: SQLite-based statistics for power on/off durations
   - Persistent storage in `/data/power_stats.db` (survives add-on restarts and updates)
   - Automatic duration calculation for each state change
   - `/stats` command to view statistics (today/week/month) with Ukrainian localization
   - Query methods for daily, weekly, and monthly aggregations
   - Support for current ongoing state duration display
-- **Statistics configuration**: `stats_enabled` option (default: true)
-- **Data persistence**: Added `data:rw` volume mapping for statistics storage
-- **Comprehensive test coverage**: Unit tests for all stats functionality using in-memory SQLite
-- Pure Go SQLite driver (`modernc.org/sqlite`) - no CGO dependencies required
+  - Statistics database always enabled (no configuration needed)
+  - Pure Go SQLite driver (`modernc.org/sqlite`) - no CGO dependencies required
+  - Comprehensive test coverage for all stats functionality
 
 ### Changed
-- Watcher now optionally records state changes to statistics database
-- Bot can display power statistics via `/stats` command
-- Updated `/help` command to include statistics usage
-- Enhanced shutdown process to properly close database connections
+- 💬 **Enhanced power notifications with duration display**:
+  - Power notifications now show duration of previous state (e.g., "Світла не було 2год 20хв")
+  - Duration displayed only if > 60 seconds and < 24 hours to avoid clutter
+  - Duration rounded to nearest minute for better readability
+  - Compact duration format without spaces: "6год 25хв" instead of "6 год 25 хв"
+  - 🕐 Duration icon changed to clock with white background for better visual clarity
+  - All Ukrainian messages moved to `messages.go` constants for better maintainability
+  - Icons moved directly into message constants
+- ⚙️ **Bot enhancements**:
+  - Updated `/help` command to include statistics usage
+  - Bot can display power statistics via `/stats` command with Ukrainian localization
+  - Enhanced shutdown process to properly close database connections
+- 🐳 **Infrastructure updates**:
+  - Updated Go base image to 1.24-alpine
+  - Added `data:rw` volume mapping for statistics storage
+
+### Fixed
+- 🐛 **Duration tracking in notifications**: Fixed bug where duration was not shown in power notifications
+  - Changed `RecordStateChange` to return previous state and duration
+  - Watcher now correctly retrieves duration before recording new state
+  - Duration was missing because `GetLastEventDuration` returned the newly recorded event instead of previous
+- 🧹 **Message formatting**: Removed extra empty line after power status message
+- ⏰ **Schedule time parsing**: Fixed "невідомо" for next-day schedule times
+  - Added detection of time-only formats (15:04, 15:04:05)
+  - Correctly converts parsed times to local timezone
+  - Better handling of times that cross midnight boundary
 
 ### Technical
 - New package: `internal/stats` with `db.go`, `recorder.go`, `query.go`
 - Database schema with `power_events` table and optimized indexes
 - Thread-safe state recording with proper timestamp handling
 - Support for both RFC3339 and standard SQLite timestamp formats
+- `RecordStateChange()` now returns `(previousState string, previousDuration int64, err error)`
+- Updated all tests to handle new return signature
+- Added `GetLastEventDuration()` method to stats Recorder
+- Updated `NotifyPowerOn/Off` signatures to accept duration parameter
+- Watcher now retrieves and passes previous state duration to notifications
+- Simplified main.go initialization logic (always create statsDB/statsRecorder)
+- Improved `getScheduledTime()` logic to track which format was matched
+- Added edge case handling in `formatDuration()` for zero-minute durations
+- Updated AGENTS.md with latest project structure and Go 1.24+ requirement
 
 ## [0.3.1] - 2026-01-04
 
