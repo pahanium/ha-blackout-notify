@@ -503,7 +503,7 @@ func TestHandleScheduleChange_NilScheduleIgnored(t *testing.T) {
 	tw.mu.Unlock()
 
 	if storedTime == nil {
-		t.Error("lastNextOffTime should not be nil")
+		t.Fatal("lastNextOffTime should not be nil")
 	}
 	if !storedTime.Equal(scheduledTime) {
 		t.Errorf("lastNextOffTime should still be %v, got %v", scheduledTime, storedTime)
