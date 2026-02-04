@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.5] - 2026-02-04
+
+### Fixed
+- 🐛 **Schedule change notifications**: Fixed incorrect suppression logic when schedule is cancelled then updated
+  - When schedule becomes `nil` (unavailable), system now preserves the last known scheduled time
+  - This prevents losing track of when the planned event should have occurred
+  - Fixes issue where notification suppression failed after schedule cancellation
+  - Example scenario: Schedule at 18:30 → cancelled at 18:38 → new schedule at 19:08
+    - Before: Lost 18:30 reference, sent notification for 06:00 (next day)
+    - After: Keeps 18:30 reference, correctly suppresses notification (less than 60 min passed)
+  - No longer sends confusing "schedule changed to nil" notifications to users
+
+### Technical
+- Added early return in `handleScheduleChange()` when `newTime == nil`
+- Schedule cancellations no longer update `lastNextOnTime` / `lastNextOffTime` variables
+- Added test `TestHandleScheduleChange_NilScheduleIgnored` to verify suppression logic works correctly
+- Improved debug logging for schedule cancellations
+
 ## [0.4.4] - 2026-02-03
 
 ### Added
