@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.6] - 2026-02-07
+
+### Fixed
+- 🐛 **CRITICAL: Incorrect outage duration calculation when WebSocket reconnects**
+  - **Bug description**: When Home Assistant WebSocket connection was lost and restored during a power outage, the bot would record intermediate "unknown" state transitions (off → unknown → off)
+  - This caused duration calculations to reset, showing incorrect outage times in notifications
+  - **Real-world impact**: 13-hour outage was incorrectly reported as 5 hours 20 minutes
+  - **Root cause**: Statistics recorder was tracking "unknown" states, which broke the duration chain
+  - **Solution**: State transitions involving "unknown" are now skipped for both statistics recording and notifications
+  - Affected transitions: `off → unknown`, `unknown → off`, `on → unknown`, `unknown → on`
+  - Statistics and notifications now use identical logic: only real power state changes (on ↔ off) are tracked
+
+### Added
+- 🧪 **Comprehensive test coverage for WebSocket reconnect scenarios**
+  - New test: `TestHandleStateChange_WebSocketReconnect` simulates the exact bug scenario
+  - Integration test: `TestDurationCalculation_WebSocketReconnect` verifies fix with real database
+  - Tests cover: normal flow, multiple outages, and reconnect edge cases
+
+### Changed
+- 🔧 **Improved logging for state transitions**
+  - Now logs when "unknown" transitions are skipped: "State transition from X to unknown, skipping recording and notification (connection issue)"
+  - Clearer distinction between initial state detection and connection issues
+  - Debug logs show when unknown states are being ignored
+
+### Technical
+- Modified `watcher.handleStateChange()` to skip statistics recording for "unknown" transitions
+  - Moved `previousState == PowerStateUnknown` check before stats recording (was after)
+  - Added `newPowerState == PowerStateUnknown` check to skip recording "to unknown" transitions
+  - Both checks perform early return, preventing database writes
+- Statistics recording and notification logic now fully synchronized
+
 ## [0.4.5] - 2026-02-04
 
 ### Fixed

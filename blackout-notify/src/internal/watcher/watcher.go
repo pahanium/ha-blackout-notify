@@ -142,6 +142,18 @@ func (w *Watcher) handleStateChange(ctx context.Context, oldState, newState *hom
 	w.lastChange = changeTime
 	w.mu.Unlock()
 
+	// Skip recording and notification if transitioning from unknown state
+	if previousState == PowerStateUnknown {
+		logger.Info("State transition from unknown to %s, skipping recording and notification (initial state detection)", newPowerState)
+		return
+	}
+
+	// Skip recording and notification if transitioning to unknown state
+	if newPowerState == PowerStateUnknown {
+		logger.Info("State transition from %s to unknown, skipping recording and notification (connection issue)", previousState)
+		return
+	}
+
 	// Record state change in statistics and get previous state duration
 	var previousStateDuration int64 = 0
 	if w.statsRecorder != nil {
@@ -153,12 +165,6 @@ func (w *Watcher) handleStateChange(ctx context.Context, oldState, newState *hom
 			previousStateDuration = duration
 			logger.Debug("Previous state (%s) lasted %d seconds", prevState, duration)
 		}
-	}
-
-	// Skip notification if transitioning from unknown state
-	if previousState == PowerStateUnknown {
-		logger.Info("State transition from unknown to %s, skipping notification (initial state detection)", newPowerState)
-		return
 	}
 
 	// Send notification based on new state with duration
