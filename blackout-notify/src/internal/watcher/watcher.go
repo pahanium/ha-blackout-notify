@@ -271,6 +271,14 @@ func (w *Watcher) handleScheduleChange(ctx context.Context, scheduleType string,
 		return
 	}
 
+	// Ignore schedule cancellations (when newTime becomes nil)
+	// This prevents losing the original scheduled time which is needed for suppression logic
+	if newTime == nil {
+		logger.Debug("Schedule cancelled (%s): %v -> nil, ignoring to preserve suppression logic",
+			scheduleType, formatTimePtr(oldTime))
+		return
+	}
+
 	logger.Info("Schedule changed (%s): %v -> %v", scheduleType, formatTimePtr(oldTime), formatTimePtr(newTime))
 
 	// Update stored time
