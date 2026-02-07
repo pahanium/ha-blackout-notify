@@ -35,6 +35,12 @@ type Watcher struct {
 	debounceTime       time.Duration
 	lastChange         time.Time
 	lastScheduleChange time.Time
+
+	// Yasno schedule monitoring
+	lastYasnoTodayState    string
+	lastYasnoTomorrowState string
+	yasnoDebounceTime      time.Duration
+	lastYasnoNotification  time.Time
 }
 
 // NewWatcher creates a new state watcher
@@ -46,13 +52,14 @@ func NewWatcher(
 	statsRecorder *stats.Recorder,
 ) *Watcher {
 	return &Watcher{
-		config:        cfg,
-		wsClient:      wsClient,
-		haClient:      haClient,
-		notifSvc:      notifSvc,
-		statsRecorder: statsRecorder,
-		lastState:     PowerStateUnknown,
-		debounceTime:  5 * time.Second, // Debounce to avoid rapid state changes
+		config:            cfg,
+		wsClient:          wsClient,
+		haClient:          haClient,
+		notifSvc:          notifSvc,
+		statsRecorder:     statsRecorder,
+		lastState:         PowerStateUnknown,
+		debounceTime:      5 * time.Second,  // Debounce to avoid rapid state changes
+		yasnoDebounceTime: 30 * time.Second, // Longer debounce for Yasno to avoid spam
 	}
 }
 
@@ -89,6 +96,9 @@ func (w *Watcher) Start(ctx context.Context) error {
 			w.handleScheduleChange(ctx, "off", oldState, newState)
 		})
 	}
+
+	// Register handlers for Yasno sensors
+	w.registerYasnoHandlers(ctx)
 
 	// Start WebSocket client with reconnect
 	return w.wsClient.RunWithReconnect(ctx)
@@ -348,5 +358,167 @@ func normalizeState(state string) PowerState {
 		return PowerStateOff
 	default:
 		return PowerStateUnknown
+	}
+}
+
+// registerYasnoHandlers registers WebSocket handlers for Yasno sensors
+func (w *Watcher) registerYasnoHandlers(ctx context.Context) {
+	if !w.config.IsYasnoMonitoringEnabled() {
+		logger.Debug("Yasno monitoring not configured, skipping")
+		return
+	}
+
+	logger.Info("Registering Yasno schedule monitors: today=%s, tomorrow=%s, calendar=%s",
+		w.config.YasnoTodaySensorID, w.config.YasnoTomorrowSensorID, w.config.YasnoCalendarID)
+
+	// Monitor today status sensor for emergency shutdowns
+	if w.config.YasnoTodaySensorID != "" {
+		w.wsClient.OnStateChange(w.config.YasnoTodaySensorID, func(entityID string, oldState, newState *homeassistant.Entity) {
+			w.handleYasnoTodayChange(ctx, oldState, newState)
+		})
+	}
+
+	// Monitor tomorrow status sensor for schedule announcements
+	if w.config.YasnoTomorrowSensorID != "" {
+		w.wsClient.OnStateChange(w.config.YasnoTomorrowSensorID, func(entityID string, oldState, newState *homeassistant.Entity) {
+			w.handleYasnoTomorrowChange(ctx, oldState, newState)
+		})
+	}
+}
+
+// handleYasnoTodayChange processes changes to today's Yasno status
+func (w *Watcher) handleYasnoTodayChange(ctx context.Context, oldState, newState *homeassistant.Entity) {
+	if newState == nil {
+		return
+	}
+
+	// Get schedule state from attributes
+	scheduleState, err := w.notifSvc.GetYasnoScheduleState(newState, "today_schedule_state")
+	if err != nil {
+		logger.Warn("Failed to get today_schedule_state from Yasno sensor: %v", err)
+		return
+	}
+
+	w.mu.Lock()
+	previousState := w.lastYasnoTodayState
+	timeSinceLastNotif := time.Since(w.lastYasnoNotification)
+	w.mu.Unlock()
+
+	// Skip if state hasn't changed
+	if scheduleState == previousState {
+		return
+	}
+
+	// Debounce to avoid spam
+	if timeSinceLastNotif < w.yasnoDebounceTime {
+		logger.Debug("Debouncing Yasno today change: %s -> %s", previousState, scheduleState)
+		return
+	}
+
+	logger.Info("Yasno today status changed: %s -> %s", previousState, scheduleState)
+
+	// Update stored state
+	w.mu.Lock()
+	w.lastYasnoTodayState = scheduleState
+	w.lastYasnoNotification = time.Now()
+	w.mu.Unlock()
+
+	// Handle different state transitions
+	switch scheduleState {
+	case "emergency_shutdowns":
+		logger.Info("Yasno: Emergency shutdowns detected")
+		if err := w.notifSvc.NotifyYasnoEmergencyShutdown(ctx); err != nil {
+			logger.Error("Failed to send Yasno emergency notification: %v", err)
+		}
+
+	case "schedule_applies":
+		// Schedule restored after emergency
+		if previousState == "emergency_shutdowns" {
+			logger.Info("Yasno: Schedule restored after emergency shutdowns")
+			// Currently just logging, can enable notification if needed
+			// if err := w.notifSvc.NotifyYasnoScheduleRestored(ctx); err != nil {
+			// 	logger.Error("Failed to send Yasno schedule restored notification: %v", err)
+			// }
+		} else {
+			logger.Info("Yasno: Schedule applies today")
+		}
+
+	case "waiting_for_schedule":
+		logger.Info("Yasno: Waiting for schedule")
+
+	default:
+		logger.Warn("Yasno: Unknown today_schedule_state: %s", scheduleState)
+	}
+}
+
+// handleYasnoTomorrowChange processes changes to tomorrow's Yasno status
+func (w *Watcher) handleYasnoTomorrowChange(ctx context.Context, oldState, newState *homeassistant.Entity) {
+	if newState == nil {
+		return
+	}
+
+	// Get schedule state from attributes
+	scheduleState, err := w.notifSvc.GetYasnoScheduleState(newState, "tomorrow_schedule_state")
+	if err != nil {
+		logger.Warn("Failed to get tomorrow_schedule_state from Yasno sensor: %v", err)
+		return
+	}
+
+	w.mu.Lock()
+	previousState := w.lastYasnoTomorrowState
+	timeSinceLastNotif := time.Since(w.lastYasnoNotification)
+	w.mu.Unlock()
+
+	// Skip if state hasn't changed
+	if scheduleState == previousState {
+		return
+	}
+
+	// Debounce to avoid spam
+	if timeSinceLastNotif < w.yasnoDebounceTime {
+		logger.Debug("Debouncing Yasno tomorrow change: %s -> %s", previousState, scheduleState)
+		return
+	}
+
+	logger.Info("Yasno tomorrow status changed: %s -> %s", previousState, scheduleState)
+
+	// Update stored state
+	w.mu.Lock()
+	w.lastYasnoTomorrowState = scheduleState
+	w.lastYasnoNotification = time.Now()
+	w.mu.Unlock()
+
+	// Handle different state transitions
+	switch scheduleState {
+	case "schedule_applies":
+		logger.Info("Yasno: Tomorrow schedule available")
+
+		// Get calendar events for tomorrow
+		tomorrow := time.Now().Add(24 * time.Hour)
+		events, err := w.notifSvc.GetYasnoCalendarEvents(ctx, w.config.YasnoCalendarID, tomorrow)
+		if err != nil {
+			logger.Error("Failed to get Yasno calendar events: %v", err)
+			return
+		}
+
+		logger.Debug("Retrieved %d calendar events for tomorrow", len(events))
+
+		// Try to get group name from sensor attributes
+		groupName := w.notifSvc.GetYasnoGroupName(newState)
+		logger.Debug("Yasno group name: %s", groupName)
+
+		// Send notification with schedule
+		if err := w.notifSvc.NotifyYasnoScheduleTomorrow(ctx, events, groupName); err != nil {
+			logger.Error("Failed to send Yasno tomorrow schedule notification: %v", err)
+		}
+
+	case "waiting_for_schedule":
+		logger.Info("Yasno: Waiting for tomorrow's schedule")
+
+	case "emergency_shutdowns":
+		logger.Info("Yasno: Emergency shutdowns expected tomorrow")
+
+	default:
+		logger.Warn("Yasno: Unknown tomorrow_schedule_state: %s", scheduleState)
 	}
 }

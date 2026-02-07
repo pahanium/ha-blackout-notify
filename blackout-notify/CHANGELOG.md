@@ -2,6 +2,65 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.6] - 2026-02-07
+
+### Added
+- 📅 **Yasno schedule monitoring and notifications**: Integration with Yasno power grid schedule sensors
+  - Monitor `sensor.yasno_*_status_today` for emergency shutdown detection
+  - Monitor `sensor.yasno_*_status_tomorrow` for daily schedule announcements
+  - Automatic calendar event fetching via `calendar.get_events` service
+  - Notifications show outage intervals in format: "🪫00:00 - 04:00"
+  - Support for group name extraction from sensor attributes (e.g., "група 2.1")
+  - Configurable via add-on UI: `yasno_today_sensor_id`, `yasno_tomorrow_sensor_id`, `yasno_calendar_id`
+  - Messages in Ukrainian with date formatting: "завтра сб, 07.02"
+  - Filter events with `description="Definite"` to show only confirmed outages
+
+### Changed
+- 🔕 **Quiet hours support**: Schedule notifications sent between 23:00-06:00 disable sound
+  - Applies to Yasno tomorrow schedule announcements
+  - User still receives notification but without disturbing sound/vibration
+  - Regular power on/off notifications not affected
+- ⏱️ **Enhanced debouncing**: Separate 30-second debounce for Yasno sensors
+  - Prevents notification spam when sensors update frequently
+  - Power monitoring keeps 5-second debounce for faster response
+
+### Technical
+- New package: `internal/homeassistant/calendar.go` with Calendar API client
+  - `GetCalendarEvents()` method for fetching calendar events
+  - Support for Home Assistant `calendar.get_events` service via POST
+  - Response parsing for nested JSON structure
+- New notification methods in `internal/notifications/service.go`:
+  - `NotifyYasnoScheduleTomorrow()` - tomorrow schedule announcement
+  - `NotifyYasnoEmergencyShutdown()` - emergency shutdown alert
+  - `NotifyYasnoScheduleRestored()` - schedule restoration (currently logged only)
+  - `GetYasnoScheduleState()` - extract state from entity attributes
+  - `GetYasnoGroupName()` - parse group name from attributes
+  - `GetYasnoCalendarEvents()` - wrapper for calendar API
+  - `sendToAllChatsWithQuietHours()` - send with conditional notification sound
+  - `formatYasnoDate()` - Ukrainian date formatting with day names
+- Enhanced `internal/watcher/watcher.go`:
+  - `registerYasnoHandlers()` - WebSocket handler registration
+  - `handleYasnoTodayChange()` - today status change processing
+  - `handleYasnoTomorrowChange()` - tomorrow status change processing
+  - Separate state tracking for Yasno sensors
+- Extended configuration in `internal/config/config.go`:
+  - `YasnoTodaySensorID`, `YasnoTomorrowSensorID`, `YasnoCalendarID` fields
+  - `IsYasnoMonitoringEnabled()` method
+  - Environment variable parsing: `YASNO_TODAY_SENSOR_ID`, etc.
+- Updated add-on configuration schema in `config.yaml`
+- Updated startup script to pass Yasno environment variables
+- Comprehensive test coverage:
+  - `calendar_test.go` - Calendar API client tests with httptest
+  - `config_test.go` - Added `TestIsYasnoMonitoringEnabled()`
+  - All tests passing with new functionality
+
+### Messages
+- `MsgYasnoScheduleTomorrow` - "📅 *Графік відключень на %s%s*"
+- `MsgYasnoNoOutagesTomorrow` - "📅 *Графік на %s%s*\n\n✅ Відключень не повинно бути 🌞"
+- `MsgYasnoEmergencyShutdown` - "🚨 *Аварійні відключення!*"
+- `MsgYasnoScheduleRestored` - "✅ *Графік відновлено*"
+- `MsgYasnoOutageInterval` - "🪫%s - %s"
+
 ## [0.4.5] - 2026-02-04
 
 ### Fixed

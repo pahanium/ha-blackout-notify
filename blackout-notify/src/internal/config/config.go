@@ -30,6 +30,11 @@ type Config struct {
 	// Statistics settings (always enabled)
 	StatsDBPath string // Path to SQLite database
 
+	// Yasno schedule monitoring settings
+	YasnoTodaySensorID    string // Entity ID of Yasno today status sensor
+	YasnoTomorrowSensorID string // Entity ID of Yasno tomorrow status sensor
+	YasnoCalendarID       string // Entity ID of Yasno calendar for schedule events
+
 	// Timezone for formatting
 	Timezone string
 }
@@ -56,6 +61,11 @@ func Load() (*Config, error) {
 
 		// Statistics settings (always enabled)
 		StatsDBPath: getEnvOrDefault("STATS_DB_PATH", DefaultStatsDBPath),
+
+		// Yasno schedule monitoring settings
+		YasnoTodaySensorID:    os.Getenv("YASNO_TODAY_SENSOR_ID"),
+		YasnoTomorrowSensorID: os.Getenv("YASNO_TOMORROW_SENSOR_ID"),
+		YasnoCalendarID:       os.Getenv("YASNO_CALENDAR_ID"),
 
 		Timezone: getEnvOrDefault("TIMEZONE", "Europe/Kyiv"),
 	}
@@ -98,6 +108,14 @@ func (c *Config) IsBotCommandsEnabled() bool {
 // IsPowerMonitoringEnabled checks if power monitoring is configured
 func (c *Config) IsPowerMonitoringEnabled() bool {
 	return c.WatchedEntityID != "" && len(c.NotificationChatIDs) > 0
+}
+
+// IsYasnoMonitoringEnabled checks if Yasno schedule monitoring is configured
+func (c *Config) IsYasnoMonitoringEnabled() bool {
+	hasCalendar := c.YasnoCalendarID != ""
+	hasSensors := c.YasnoTodaySensorID != "" || c.YasnoTomorrowSensorID != ""
+	hasNotifications := len(c.NotificationChatIDs) > 0
+	return hasCalendar && hasSensors && hasNotifications
 }
 
 func getEnvOrDefault(key, defaultValue string) string {
