@@ -19,6 +19,11 @@ export NEXT_OFF_SENSOR_ID=$(bashio::config 'next_off_sensor_id')
 export PAUSE_ENTITY_ID=$(bashio::config 'pause_entity_id')
 export TIMEZONE=$(bashio::config 'timezone')
 
+# Yasno schedule monitoring settings
+export YASNO_TODAY_SENSOR_ID=$(bashio::config 'yasno_today_sensor_id')
+export YASNO_TOMORROW_SENSOR_ID=$(bashio::config 'yasno_tomorrow_sensor_id')
+export YASNO_CALENDAR_ID=$(bashio::config 'yasno_calendar_id')
+
 # Statistics settings (always enabled)
 export STATS_DB_PATH="/data/power_stats.db"
 

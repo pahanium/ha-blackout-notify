@@ -143,3 +143,85 @@ func TestParseChatIDs(t *testing.T) {
 		})
 	}
 }
+
+func TestIsYasnoMonitoringEnabled(t *testing.T) {
+	tests := []struct {
+		name                  string
+		yasnoCalendarID       string
+		yasnoTodaySensorID    string
+		yasnoTomorrowSensorID string
+		notificationChatIDs   []int64
+		want                  bool
+	}{
+		{
+			name:                  "fully configured",
+			yasnoCalendarID:       "calendar.yasno",
+			yasnoTodaySensorID:    "sensor.yasno_today",
+			yasnoTomorrowSensorID: "sensor.yasno_tomorrow",
+			notificationChatIDs:   []int64{123},
+			want:                  true,
+		},
+		{
+			name:                  "only tomorrow sensor",
+			yasnoCalendarID:       "calendar.yasno",
+			yasnoTodaySensorID:    "",
+			yasnoTomorrowSensorID: "sensor.yasno_tomorrow",
+			notificationChatIDs:   []int64{123},
+			want:                  true,
+		},
+		{
+			name:                  "only today sensor",
+			yasnoCalendarID:       "calendar.yasno",
+			yasnoTodaySensorID:    "sensor.yasno_today",
+			yasnoTomorrowSensorID: "",
+			notificationChatIDs:   []int64{123},
+			want:                  true,
+		},
+		{
+			name:                  "no calendar",
+			yasnoCalendarID:       "",
+			yasnoTodaySensorID:    "sensor.yasno_today",
+			yasnoTomorrowSensorID: "sensor.yasno_tomorrow",
+			notificationChatIDs:   []int64{123},
+			want:                  false,
+		},
+		{
+			name:                  "no sensors",
+			yasnoCalendarID:       "calendar.yasno",
+			yasnoTodaySensorID:    "",
+			yasnoTomorrowSensorID: "",
+			notificationChatIDs:   []int64{123},
+			want:                  false,
+		},
+		{
+			name:                  "no notification chats",
+			yasnoCalendarID:       "calendar.yasno",
+			yasnoTodaySensorID:    "sensor.yasno_today",
+			yasnoTomorrowSensorID: "sensor.yasno_tomorrow",
+			notificationChatIDs:   []int64{},
+			want:                  false,
+		},
+		{
+			name:                  "nothing configured",
+			yasnoCalendarID:       "",
+			yasnoTodaySensorID:    "",
+			yasnoTomorrowSensorID: "",
+			notificationChatIDs:   []int64{},
+			want:                  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				YasnoCalendarID:       tt.yasnoCalendarID,
+				YasnoTodaySensorID:    tt.yasnoTodaySensorID,
+				YasnoTomorrowSensorID: tt.yasnoTomorrowSensorID,
+				NotificationChatIDs:   tt.notificationChatIDs,
+			}
+			if got := cfg.IsYasnoMonitoringEnabled(); got != tt.want {
+				t.Errorf("IsYasnoMonitoringEnabled() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
