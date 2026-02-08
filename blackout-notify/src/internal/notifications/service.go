@@ -354,20 +354,6 @@ func (s *Service) NotifyYasnoScheduleRestored(ctx context.Context) error {
 	return s.sendToAllChats(MsgYasnoScheduleRestored)
 }
 
-// GetYasnoScheduleState extracts schedule state from entity attributes
-func (s *Service) GetYasnoScheduleState(entity *homeassistant.Entity, attributeName string) (string, error) {
-	if entity == nil || entity.Attributes == nil {
-		return "", fmt.Errorf("entity or attributes are nil")
-	}
-
-	state, ok := entity.Attributes[attributeName].(string)
-	if !ok {
-		return "", fmt.Errorf("attribute %s not found or not a string", attributeName)
-	}
-
-	return state, nil
-}
-
 // GetYasnoGroupName extracts group name from entity attributes
 func (s *Service) GetYasnoGroupName(entity *homeassistant.Entity) string {
 	if entity == nil || entity.Attributes == nil {

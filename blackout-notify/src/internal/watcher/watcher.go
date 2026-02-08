@@ -392,10 +392,10 @@ func (w *Watcher) handleYasnoTodayChange(ctx context.Context, oldState, newState
 		return
 	}
 
-	// Get schedule state from attributes
-	scheduleState, err := w.notifSvc.GetYasnoScheduleState(newState, "today_schedule_state")
-	if err != nil {
-		logger.Warn("Failed to get today_schedule_state from Yasno sensor: %v", err)
+	// Get schedule state from sensor state (not attributes)
+	scheduleState := newState.State
+	if scheduleState == "" {
+		logger.Warn("Yasno today sensor has empty state")
 		return
 	}
 
@@ -457,10 +457,10 @@ func (w *Watcher) handleYasnoTomorrowChange(ctx context.Context, oldState, newSt
 		return
 	}
 
-	// Get schedule state from attributes
-	scheduleState, err := w.notifSvc.GetYasnoScheduleState(newState, "tomorrow_schedule_state")
-	if err != nil {
-		logger.Warn("Failed to get tomorrow_schedule_state from Yasno sensor: %v", err)
+	// Get schedule state from sensor state (not attributes)
+	scheduleState := newState.State
+	if scheduleState == "" {
+		logger.Warn("Yasno tomorrow sensor has empty state")
 		return
 	}
 
