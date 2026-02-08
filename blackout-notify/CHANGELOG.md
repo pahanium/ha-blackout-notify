@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.7] - 2026-02-08
+
+### Fixed
+- 🐛 **Yasno sensor state reading**: Fixed incorrect attribute lookup for Yasno schedule sensors
+  - Yasno sensors store schedule state in `sensor.state` (enum type), not in `attributes`
+  - Changed `handleYasnoTodayChange()` to read from `newState.State` directly
+  - Changed `handleYasnoTomorrowChange()` to read from `newState.State` directly
+  - Removed unused `GetYasnoScheduleState()` method that was looking in wrong place
+  - Fixes error: "attribute tomorrow_schedule_state not found or not a string"
+  - Sensor state enum values: `schedule_applies`, `waiting_for_schedule`, `emergency_shutdowns`, `unknown`
+
 ## [0.4.6] - 2026-02-07
 
 ### Added
