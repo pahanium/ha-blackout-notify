@@ -67,10 +67,22 @@ func (c *Client) GetCalendarEvents(ctx context.Context, calendarID, startDateTim
 		return nil, fmt.Errorf("calendar service call failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Parse response
+	// Read response body for debugging
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	// Try to parse as array first (direct event list)
+	var eventsArray []CalendarEvent
+	if err := json.Unmarshal(body, &eventsArray); err == nil {
+		return eventsArray, nil
+	}
+
+	// Try to parse as map (calendar entity -> events)
 	var response CalendarEventsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return nil, fmt.Errorf("failed to decode calendar response: %w", err)
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, fmt.Errorf("failed to decode calendar response: %w (body: %s)", err, string(body))
 	}
 
 	// Extract events for the requested calendar

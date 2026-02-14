@@ -158,3 +158,62 @@ func TestGetCalendarEventsNotFound(t *testing.T) {
 		t.Errorf("Expected 0 events, got %d", len(events))
 	}
 }
+
+func TestGetCalendarEventsArrayFormat(t *testing.T) {
+	// Create test server that returns array directly (when using ?return_response=true)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Verify return_response query parameter
+		if r.URL.Query().Get("return_response") != "true" {
+			t.Errorf("Expected return_response=true query parameter")
+		}
+
+		// Send direct array response
+		response := []CalendarEvent{
+			{
+				Start:       "2026-02-07T00:00:00+00:00",
+				End:         "2026-02-07T04:00:00+00:00",
+				Summary:     "Outage",
+				Description: "Definite",
+			},
+			{
+				Start:       "2026-02-07T07:30:00+00:00",
+				End:         "2026-02-07T14:30:00+00:00",
+				Summary:     "Outage",
+				Description: "Possible",
+			},
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	// Create client
+	client := NewClient(server.URL, "test_token")
+
+	// Get calendar events
+	events, err := client.GetCalendarEvents(
+		context.Background(),
+		"calendar.yasno",
+		"2026-02-07 00:00:00",
+		"2026-02-07 23:59:59",
+	)
+
+	if err != nil {
+		t.Fatalf("GetCalendarEvents() error = %v", err)
+	}
+
+	// Verify events
+	if len(events) != 2 {
+		t.Errorf("Expected 2 events, got %d", len(events))
+	}
+
+	// Verify first event
+	if events[0].Description != "Definite" {
+		t.Errorf("Expected description 'Definite', got %s", events[0].Description)
+	}
+
+	if events[1].Description != "Possible" {
+		t.Errorf("Expected description 'Possible', got %s", events[1].Description)
+	}
+}

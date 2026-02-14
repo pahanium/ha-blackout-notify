@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.9] - 2026-02-14
+
+### Fixed
+- 🐛 **Calendar API response parsing**: Support both array and map response formats
+  - Fixed error: "json: cannot unmarshal array into Go value of type struct"
+  - Calendar API with `?return_response=true` returns direct array of events
+  - Added fallback parsing for legacy map format `{"calendar.entity_id": {"events": [...]}}`
+  - Added test case for array response format
+  - Improved error messages with response body for debugging
+
 ## [0.4.8] - 2026-02-13
 
 ### Fixed
