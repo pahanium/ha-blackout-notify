@@ -32,7 +32,7 @@ type CalendarEventsResponse map[string]struct {
 
 // GetCalendarEvents retrieves calendar events for a specific date range
 func (c *Client) GetCalendarEvents(ctx context.Context, calendarID, startDateTime, endDateTime string) ([]CalendarEvent, error) {
-	url := fmt.Sprintf("%s/services/calendar/get_events", c.baseURL)
+	url := fmt.Sprintf("%s/services/calendar/get_events?return_response=true", c.baseURL)
 
 	// Create request payload
 	payload := CalendarEventsRequest{

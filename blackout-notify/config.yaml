@@ -2,7 +2,7 @@
 # Documentation: https://developers.home-assistant.io/docs/add-ons/configuration
 
 name: "Blackout Notify (Beta)"
-version: "0.4.7"
+version: "0.4.8"
 slug: "blackout_notify_beta"
 description: "Power grid monitoring with Telegram notifications for outages and restoration (Beta version with latest features)"
 url: "https://github.com/pahanium/ha-blackout-notify"

@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.8] - 2026-02-13
+
+### Fixed
+- 🐛 **Calendar API query parameter**: Added `?return_response=true` to calendar service calls
+  - Fixed error: "Service call requires responses but caller did not ask for responses"
+  - Calendar events now properly retrieved for Yasno schedule notifications
+  - Affects tomorrow schedule announcements with planned outage times
+
 ## [0.4.7] - 2026-02-08
 
 ### Fixed
