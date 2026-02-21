@@ -503,9 +503,10 @@ func (w *Watcher) handleYasnoTomorrowChange(ctx context.Context, oldState, newSt
 
 		logger.Debug("Retrieved %d calendar events for tomorrow", len(events))
 
-		// Try to get group name from sensor attributes
-		groupName := w.notifSvc.GetYasnoGroupName(newState)
-		logger.Debug("Yasno group name: %s", groupName)
+		// Extract group name from calendar entity ID
+		// Example: calendar.yasno_kiiv_2_1_planned_outages -> "група 2.1"
+		groupName := notifications.ExtractYasnoGroupFromCalendarID(w.config.YasnoCalendarID)
+		logger.Debug("Yasno group name extracted from calendar ID '%s': %s", w.config.YasnoCalendarID, groupName)
 
 		// Send notification with schedule
 		if err := w.notifSvc.NotifyYasnoScheduleTomorrow(ctx, events, groupName); err != nil {

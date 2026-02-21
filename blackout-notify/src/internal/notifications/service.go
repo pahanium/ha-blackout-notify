@@ -354,26 +354,6 @@ func (s *Service) NotifyYasnoScheduleRestored(ctx context.Context) error {
 	return s.sendToAllChats(MsgYasnoScheduleRestored)
 }
 
-// GetYasnoGroupName extracts group name from entity attributes
-func (s *Service) GetYasnoGroupName(entity *homeassistant.Entity) string {
-	if entity == nil || entity.Attributes == nil {
-		return ""
-	}
-
-	// Try different possible attribute names for group
-	possibleAttrs := []string{"group", "group_name", "queue", "queue_name"}
-
-	for _, attr := range possibleAttrs {
-		if value, ok := entity.Attributes[attr]; ok {
-			if groupStr, ok := value.(string); ok && groupStr != "" {
-				return fmt.Sprintf("група %s", groupStr)
-			}
-		}
-	}
-
-	return ""
-}
-
 // GetYasnoCalendarEvents retrieves calendar events for a specific date
 func (s *Service) GetYasnoCalendarEvents(ctx context.Context, calendarID string, date time.Time) ([]homeassistant.CalendarEvent, error) {
 	// Format date range for the entire day
@@ -508,4 +488,40 @@ func (s *Service) FormatYasnoSchedule(events []homeassistant.CalendarEvent, date
 // GetLocation returns the service's timezone location
 func (s *Service) GetLocation() *time.Location {
 	return s.location
+}
+
+// ExtractYasnoGroupFromCalendarID extracts group number from calendar entity ID
+// Examples:
+//
+//	calendar.yasno_kiiv_2_1_planned_outages -> "група 2.1"
+//	calendar.yasno_kyiv_3_2_planned_outages -> "група 3.2"
+//	calendar.other_calendar -> ""
+func ExtractYasnoGroupFromCalendarID(calendarID string) string {
+	if calendarID == "" {
+		return ""
+	}
+
+	// Remove "calendar." prefix if present
+	name := calendarID
+	if idx := strings.Index(name, "."); idx >= 0 {
+		name = name[idx+1:]
+	}
+
+	// Look for pattern like "2_1" or "3_2" in the name
+	// Expected format: yasno_kiiv_X_Y_planned_outages where X and Y are digits
+	parts := strings.Split(name, "_")
+
+	// Find consecutive digit parts
+	for i := 0; i < len(parts)-1; i++ {
+		// Check if current and next parts are single digits
+		if len(parts[i]) == 1 && len(parts[i+1]) == 1 {
+			// Check if both are digits
+			if parts[i][0] >= '0' && parts[i][0] <= '9' &&
+				parts[i+1][0] >= '0' && parts[i+1][0] <= '9' {
+				return fmt.Sprintf("група %s.%s", parts[i], parts[i+1])
+			}
+		}
+	}
+
+	return ""
 }

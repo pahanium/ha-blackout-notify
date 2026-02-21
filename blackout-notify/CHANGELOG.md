@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0] - 2026-02-21
+
+### Added
+- ✨ **New `/calendar` command**: View Yasno schedule directly in Telegram
+  - `/calendar` - shows today's schedule
+  - `/calendar tomorrow` - shows tomorrow's schedule
+  - Uses same formatting as automatic notifications
+  - Shows group name extracted from calendar entity ID
+  - Filters only "Definite" outages (confirmed schedule)
+
+### Changed
+- 🔄 **Unified group name detection**: Both automatic notifications and `/calendar` command now extract group name from calendar entity ID
+  - Example: `calendar.yasno_kiiv_2_1_planned_outages` → "група 2.1"
+  - Removed old `GetYasnoGroupName()` method that read from sensor attributes
+  - More reliable than sensor attributes which may be empty
+  - Works for any spelling: kiiv, kyiv, kiev
+
+### Improved
+- 📝 **Better debug logging**: Added logging for group name extraction from calendar ID
+- 🧪 **Test coverage**: Added unit tests for `ExtractYasnoGroupFromCalendarID()` function
+
 ## [0.4.9] - 2026-02-14
 
 ### Fixed

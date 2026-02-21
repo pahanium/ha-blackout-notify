@@ -10,6 +10,7 @@ import (
 	"github.com/yourusername/haaddon/telegram-bot/internal/config"
 	"github.com/yourusername/haaddon/telegram-bot/internal/homeassistant"
 	"github.com/yourusername/haaddon/telegram-bot/internal/logger"
+	"github.com/yourusername/haaddon/telegram-bot/internal/notifications"
 	"github.com/yourusername/haaddon/telegram-bot/internal/stats"
 )
 
@@ -496,23 +497,10 @@ func (b *Bot) handleCalendar(ctx context.Context, args string) (string, error) {
 
 	logger.Debug("Retrieved %d events", len(events))
 
-	// Get group name from entity attributes (if available)
-	groupName := ""
-	if b.config.YasnoCalendarID != "" {
-		entity, err := b.haClient.GetState(ctx, b.config.YasnoCalendarID)
-		if err == nil && entity != nil && entity.Attributes != nil {
-			// Try different possible attribute names for group
-			possibleAttrs := []string{"group", "group_name", "queue", "queue_name"}
-			for _, attr := range possibleAttrs {
-				if value, ok := entity.Attributes[attr]; ok {
-					if groupStr, ok := value.(string); ok && groupStr != "" {
-						groupName = fmt.Sprintf("група %s", groupStr)
-						break
-					}
-				}
-			}
-		}
-	}
+	// Extract group name from calendar entity ID
+	// Example: calendar.yasno_kiiv_2_1_planned_outages -> "група 2.1"
+	groupName := notifications.ExtractYasnoGroupFromCalendarID(b.config.YasnoCalendarID)
+	logger.Debug("Group name extracted from calendar ID '%s': %s", b.config.YasnoCalendarID, groupName)
 
 	// Format using the same formatter as automatic notifications
 	response := b.notifService.FormatYasnoSchedule(events, targetDate, groupName)
