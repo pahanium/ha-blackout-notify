@@ -107,28 +107,32 @@ log_level: "info"                          # debug/info/warn/error
 
 ## Local Development
 
-### Option 1: Direct Go Build
+### Option 1: Direct Go Build (Easiest)
+
+The bot now automatically loads `.env` file for local development:
 
 ```bash
+# 1. Create .env file (if not exists)
+cp .env.example .env
+nano .env  # Fill in your values (HA_API_URL, TELEGRAM_TOKEN, etc.)
+
+# 2. Build the binary
 cd blackout-notify/src
-
-# Install dependencies
-go mod tidy
-
-# Run tests
-go test -v ./...
-
-# Build
 go build -o ../bin/blackout-notify ./cmd/bot
 
-# Run with environment variables
-export TELEGRAM_TOKEN="your_token"
-export HA_API_URL="http://192.168.1.100:8123/api"
-export HA_TOKEN="your_ha_token"
-export LOG_LEVEL="debug"
-
+# 3. Run from src directory (it will auto-load ../../.env)
+cd blackout-notify/src
 ../bin/blackout-notify
+
+# Or use the helper script from repo root
+./scripts/run-local.sh
 ```
+
+**Important notes:**
+- `.env` file must be in the repository root (not in `src/`)
+- Set `HA_API_URL` to your Home Assistant URL: `http://192.168.X.X:8123/api`
+- Set `STATS_DB_PATH=./power_stats.db` for local development (not `/data/power_stats.db`)
+- The bot will create `power_stats.db` in the current directory
 
 ### Option 2: Docker Compose (Recommended)
 

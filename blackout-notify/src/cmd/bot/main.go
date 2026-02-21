@@ -6,6 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/joho/godotenv"
 	"github.com/yourusername/haaddon/telegram-bot/internal/bot"
 	"github.com/yourusername/haaddon/telegram-bot/internal/config"
 	"github.com/yourusername/haaddon/telegram-bot/internal/homeassistant"
@@ -16,6 +17,10 @@ import (
 )
 
 func main() {
+	// Load .env file if it exists (for local development)
+	// Ignore error if file doesn't exist (production uses env vars directly)
+	_ = godotenv.Load("../../.env")
+
 	// Load configuration from environment variables
 	cfg, err := config.Load()
 	if err != nil {

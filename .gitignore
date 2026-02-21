@@ -21,6 +21,9 @@ blackout-notify/rootfs/app
 # Local development
 .env
 *.local
+power_stats.db
+*.db
+*.db-*
 
 # Docker
 docker-compose.override.yml

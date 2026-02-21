@@ -79,17 +79,35 @@ rm go.sum && go mod tidy
 
 ### Running Locally
 ```bash
-# Direct Go execution
+# Method 1: Using .env file (EASIEST - recommended for development)
+# The bot automatically loads .env from repo root
+cd blackout-notify/src
+go build -o ../bin/blackout-notify ./cmd/bot
+../bin/blackout-notify  # Will auto-load ../../.env
+
+# Or use helper script from repo root
+./scripts/run-local.sh
+
+# Method 2: Direct Go execution with manual env vars
 export TELEGRAM_TOKEN="xxx"
 export HA_API_URL="http://192.168.1.100:8123/api"
 export HA_TOKEN="xxx"
 export LOG_LEVEL="debug"
+export STATS_DB_PATH="./power_stats.db"
+cd blackout-notify/src
 go run ./cmd/bot
 
-# Using Docker Compose (from repo root)
+# Method 3: Using Docker Compose (from repo root)
 cp .env.example .env && nano .env
 docker compose -f docker-compose.dev.yaml up --build
 ```
+
+**Important for local development:**
+- `.env` file must be in repository root (not in `src/`)
+- Set `HA_API_URL=http://192.168.X.X:8123/api` (not `http://supervisor/core/api`)
+- Set `STATS_DB_PATH=./power_stats.db` (not `/data/power_stats.db`)
+- The bot uses `github.com/joho/godotenv` to auto-load `.env` file
+
 
 ## Project Architecture
 
