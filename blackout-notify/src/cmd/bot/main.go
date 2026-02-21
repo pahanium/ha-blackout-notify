@@ -71,6 +71,20 @@ func main() {
 	// Initialize power monitoring if configured
 	var powerWatcher *watcher.Watcher
 	var statsDB *stats.DB
+	var notifSvc *notifications.Service
+
+	// Initialize notification service if Yasno calendar is configured
+	// This allows /calendar command to work even without power monitoring
+	if cfg.YasnoCalendarID != "" || cfg.IsPowerMonitoringEnabled() {
+		notifSvc, err = notifications.NewService(telegramBot.GetAPI(), cfg, haClient)
+		if err != nil {
+			logger.Fatal("Failed to create notification service: %v", err)
+		}
+		// Provide notification service to bot for /calendar command
+		telegramBot.SetNotificationService(notifSvc)
+		logger.Info("Notification service initialized")
+	}
+
 	if cfg.IsPowerMonitoringEnabled() {
 		logger.Info("Power monitoring enabled for entity: %s", cfg.WatchedEntityID)
 
@@ -87,12 +101,6 @@ func main() {
 
 		// Initialize WebSocket client for real-time events
 		wsClient := homeassistant.NewWSClient(cfg.HAApiURL, cfg.HAToken)
-
-		// Initialize notification service
-		notifSvc, err := notifications.NewService(telegramBot.GetAPI(), cfg, haClient)
-		if err != nil {
-			logger.Fatal("Failed to create notification service: %v", err)
-		}
 
 		// Initialize power watcher
 		powerWatcher = watcher.NewWatcher(cfg, wsClient, haClient, notifSvc, statsRecorder)

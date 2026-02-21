@@ -13,6 +13,12 @@ import (
 	"github.com/yourusername/haaddon/telegram-bot/internal/stats"
 )
 
+// NotificationService interface for accessing notification formatting
+type NotificationService interface {
+	FormatYasnoSchedule(events []homeassistant.CalendarEvent, date time.Time, groupName string) string
+	GetLocation() *time.Location
+}
+
 // Bot represents a Telegram bot
 type Bot struct {
 	api           *tgbotapi.BotAPI
@@ -20,6 +26,7 @@ type Bot struct {
 	haClient      *homeassistant.Client
 	statsRecorder *stats.Recorder
 	statsDB       *stats.DB
+	notifService  NotificationService
 	stopChan      chan struct{}
 }
 
@@ -49,6 +56,11 @@ func (b *Bot) GetAPI() *tgbotapi.BotAPI {
 func (b *Bot) SetStatsProvider(recorder *stats.Recorder, db *stats.DB) {
 	b.statsRecorder = recorder
 	b.statsDB = db
+}
+
+// SetNotificationService sets the notification service for the bot
+func (b *Bot) SetNotificationService(notifService NotificationService) {
+	b.notifService = notifService
 }
 
 // Start starts processing messages
@@ -115,6 +127,8 @@ func (b *Bot) handleMessage(ctx context.Context, message *tgbotapi.Message) {
 		response, err = b.handleStatus(ctx)
 	case "stats":
 		response, err = b.handleStats(ctx, args)
+	case "calendar":
+		response, err = b.handleCalendar(ctx, args)
 	case "entities":
 		response, err = b.handleEntities(ctx, args)
 	case "state":
@@ -162,6 +176,7 @@ func (b *Bot) handleHelp() string {
 *General:*
 /status - Home Assistant status
 /stats [period] - Power statistics (today/week/month)
+/calendar [tomorrow] - View Yasno schedule (today or tomorrow)
 /chatid - Show your chat ID
 
 *Entities:*
@@ -177,7 +192,8 @@ func (b *Bot) handleHelp() string {
 ` + "`/entities light`" + `
 ` + "`/state light.living_room`" + `
 ` + "`/turn_on switch.bedroom_fan`" + `
-` + "`/stats week`"
+` + "`/stats week`" + `
+` + "`/calendar tomorrow`"
 }
 
 func (b *Bot) handleStatus(ctx context.Context) (string, error) {
@@ -433,6 +449,73 @@ func (b *Bot) handleStats(ctx context.Context, args string) (string, error) {
 
 	// Add usage instructions
 	response += "\n_Використання:_\n`/stats today` - за сьогодні\n`/stats week` - за тиждень\n`/stats month` - за місяць"
+
+	return response, nil
+}
+
+func (b *Bot) handleCalendar(ctx context.Context, args string) (string, error) {
+	// Check if notification service is available
+	if b.notifService == nil {
+		return "❌ Notification service not available", nil
+	}
+
+	// Check if calendar is configured
+	if b.config.YasnoCalendarID == "" {
+		return "❌ Yasno calendar not configured. Please set YASNO_CALENDAR_ID in config.", nil
+	}
+
+	// Parse arguments: /calendar or /calendar tomorrow
+	args = strings.ToLower(strings.TrimSpace(args))
+
+	location := b.notifService.GetLocation()
+	var targetDate time.Time
+
+	switch args {
+	case "", "today", "сьогодні":
+		targetDate = time.Now().In(location)
+	case "tomorrow", "завтра":
+		targetDate = time.Now().In(location).Add(24 * time.Hour)
+	default:
+		return "❌ Невірний аргумент. Використовуйте:\n`/calendar` - графік на сьогодні\n`/calendar tomorrow` - графік на завтра", nil
+	}
+
+	// Format date range for the entire day
+	startOfDay := time.Date(targetDate.Year(), targetDate.Month(), targetDate.Day(), 0, 0, 0, 0, location)
+	endOfDay := startOfDay.Add(24 * time.Hour)
+
+	startDateTime := startOfDay.Format("2006-01-02T15:04:05")
+	endDateTime := endOfDay.Format("2006-01-02T15:04:05")
+
+	logger.Debug("Fetching calendar events: calendar=%s, start=%s, end=%s", b.config.YasnoCalendarID, startDateTime, endDateTime)
+
+	// Get calendar events
+	events, err := b.haClient.GetCalendarEvents(ctx, b.config.YasnoCalendarID, startDateTime, endDateTime)
+	if err != nil {
+		return "", fmt.Errorf("не вдалось отримати події календаря: %w", err)
+	}
+
+	logger.Debug("Retrieved %d events", len(events))
+
+	// Get group name from entity attributes (if available)
+	groupName := ""
+	if b.config.YasnoCalendarID != "" {
+		entity, err := b.haClient.GetState(ctx, b.config.YasnoCalendarID)
+		if err == nil && entity != nil && entity.Attributes != nil {
+			// Try different possible attribute names for group
+			possibleAttrs := []string{"group", "group_name", "queue", "queue_name"}
+			for _, attr := range possibleAttrs {
+				if value, ok := entity.Attributes[attr]; ok {
+					if groupStr, ok := value.(string); ok && groupStr != "" {
+						groupName = fmt.Sprintf("група %s", groupStr)
+						break
+					}
+				}
+			}
+		}
+	}
+
+	// Format using the same formatter as automatic notifications
+	response := b.notifService.FormatYasnoSchedule(events, targetDate, groupName)
 
 	return response, nil
 }

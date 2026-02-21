@@ -30,6 +30,12 @@ type CalendarEventsResponse map[string]struct {
 	Events []CalendarEvent `json:"events"`
 }
 
+// ServiceCallResponse wraps the actual response from HA service calls
+type ServiceCallResponse struct {
+	ChangedStates   []interface{}          `json:"changed_states"`
+	ServiceResponse CalendarEventsResponse `json:"service_response"`
+}
+
 // GetCalendarEvents retrieves calendar events for a specific date range
 func (c *Client) GetCalendarEvents(ctx context.Context, calendarID, startDateTime, endDateTime string) ([]CalendarEvent, error) {
 	url := fmt.Sprintf("%s/services/calendar/get_events?return_response=true", c.baseURL)
@@ -71,6 +77,17 @@ func (c *Client) GetCalendarEvents(ctx context.Context, calendarID, startDateTim
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	// Try to parse as ServiceCallResponse (wrapper with service_response)
+	var serviceCall ServiceCallResponse
+	if err := json.Unmarshal(body, &serviceCall); err == nil && serviceCall.ServiceResponse != nil {
+		// Extract events from service_response
+		if calendarData, ok := serviceCall.ServiceResponse[calendarID]; ok {
+			return calendarData.Events, nil
+		}
+		// If calendar not found in service_response, return empty slice (not an error)
+		return []CalendarEvent{}, nil
 	}
 
 	// Try to parse as array first (direct event list)

@@ -123,9 +123,6 @@ go build -o ../bin/blackout-notify ./cmd/bot
 # 3. Run from src directory (it will auto-load ../../.env)
 cd blackout-notify/src
 ../bin/blackout-notify
-
-# Or use the helper script from repo root
-./scripts/run-local.sh
 ```
 
 **Important notes:**

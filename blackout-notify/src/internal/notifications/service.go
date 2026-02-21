@@ -448,3 +448,64 @@ func isSameDay(t1, t2 time.Time) bool {
 	y2, m2, d2 := t2.Date()
 	return y1 == y2 && m1 == m2 && d1 == d2
 }
+
+// FormatYasnoSchedule formats Yasno calendar events in the same style as automatic notifications
+// date - target date to format schedule for (today or tomorrow)
+func (s *Service) FormatYasnoSchedule(events []homeassistant.CalendarEvent, date time.Time, groupName string) string {
+	date = date.In(s.location)
+	dateStr := formatYasnoDate(date, s.location)
+
+	// Add group name if available
+	groupStr := ""
+	if groupName != "" {
+		groupStr = fmt.Sprintf(", %s", groupName)
+	}
+
+	// Filter events with description="Definite" (actual outages)
+	var outages []homeassistant.CalendarEvent
+	for _, event := range events {
+		if event.Description == "Definite" {
+			outages = append(outages, event)
+		}
+	}
+
+	// Build message
+	var sb strings.Builder
+
+	if len(outages) == 0 {
+		// No outages
+		sb.WriteString(fmt.Sprintf(MsgYasnoNoOutagesTomorrow, dateStr, groupStr))
+	} else {
+		// Has outages
+		sb.WriteString(fmt.Sprintf(MsgYasnoScheduleTomorrow, dateStr, groupStr))
+		sb.WriteString("\n")
+
+		// Format each outage interval
+		for _, outage := range outages {
+			startTime, err := time.Parse(time.RFC3339, outage.Start)
+			if err != nil {
+				logger.Warn("Failed to parse outage start time %s: %v", outage.Start, err)
+				continue
+			}
+			endTime, err := time.Parse(time.RFC3339, outage.End)
+			if err != nil {
+				logger.Warn("Failed to parse outage end time %s: %v", outage.End, err)
+				continue
+			}
+
+			startTime = startTime.In(s.location)
+			endTime = endTime.In(s.location)
+
+			sb.WriteString(fmt.Sprintf("\n"+MsgYasnoOutageInterval,
+				startTime.Format("15:04"),
+				endTime.Format("15:04")))
+		}
+	}
+
+	return sb.String()
+}
+
+// GetLocation returns the service's timezone location
+func (s *Service) GetLocation() *time.Location {
+	return s.location
+}

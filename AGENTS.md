@@ -85,9 +85,6 @@ cd blackout-notify/src
 go build -o ../bin/blackout-notify ./cmd/bot
 ../bin/blackout-notify  # Will auto-load ../../.env
 
-# Or use helper script from repo root
-./scripts/run-local.sh
-
 # Method 2: Direct Go execution with manual env vars
 export TELEGRAM_TOKEN="xxx"
 export HA_API_URL="http://192.168.1.100:8123/api"

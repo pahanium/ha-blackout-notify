@@ -217,3 +217,63 @@ func TestGetCalendarEventsArrayFormat(t *testing.T) {
 		t.Errorf("Expected description 'Possible', got %s", events[1].Description)
 	}
 }
+
+func TestGetCalendarEventsServiceResponse(t *testing.T) {
+	// Create test server that returns new service_response format
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Return response in new HA format with service_response wrapper
+		response := ServiceCallResponse{
+			ChangedStates: []interface{}{},
+			ServiceResponse: CalendarEventsResponse{
+				"calendar.yasno": {
+					Events: []CalendarEvent{
+						{
+							Start:       "2026-02-21T02:00:00+02:00",
+							End:         "2026-02-21T05:30:00+02:00",
+							Summary:     "Відключення",
+							Description: "Definite",
+						},
+						{
+							Start:       "2026-02-21T12:00:00+02:00",
+							End:         "2026-02-21T17:00:00+02:00",
+							Summary:     "Відключення",
+							Description: "Definite",
+						},
+					},
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	// Create client
+	client := NewClient(server.URL, "test_token")
+
+	// Get calendar events
+	events, err := client.GetCalendarEvents(
+		context.Background(),
+		"calendar.yasno",
+		"2026-02-21T00:00:00",
+		"2026-02-22T00:00:00",
+	)
+
+	if err != nil {
+		t.Fatalf("GetCalendarEvents() error = %v", err)
+	}
+
+	// Verify events
+	if len(events) != 2 {
+		t.Errorf("Expected 2 events, got %d", len(events))
+	}
+
+	// Verify event content
+	if events[0].Summary != "Відключення" {
+		t.Errorf("Expected summary 'Відключення', got %s", events[0].Summary)
+	}
+
+	if events[0].Description != "Definite" {
+		t.Errorf("Expected description 'Definite', got %s", events[0].Description)
+	}
+}
