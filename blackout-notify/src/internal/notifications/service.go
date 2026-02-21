@@ -244,6 +244,11 @@ func (s *Service) GetScheduledTime(ctx context.Context, sensorID string) (*time.
 	return s.getScheduledTime(ctx, sensorID)
 }
 
+// GetLocation returns the configured timezone location
+func (s *Service) GetLocation() *time.Location {
+	return s.location
+}
+
 // formatDuration formats duration in human-readable Ukrainian, rounded to minutes
 // Format: "6год 25хв" (no spaces to save message width)
 func formatDuration(d time.Duration) string {

@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.7] - 2026-02-21
+
+### Fixed
+- 🐛 **Schedule change notifications**: Suppress notifications when schedule updates for a different day
+  - Added date comparison to prevent spam when evening schedule updates reflect tomorrow's schedule
+  - Notifications only sent when schedule changes for the current day
+  - Example scenario: At 15:20, schedule changes from 13:30 (today, already passed) → 07:30 (tomorrow)
+    - Before: Notification sent at 15:20 about tomorrow's 07:30 schedule
+    - After: Notification suppressed because new schedule is for tomorrow, not today
+  - Prevents unnecessary notifications 2+ hours before actual power changes
+  - Uses timezone-aware date comparison for correct handling across midnight boundary
+
+### Technical
+- Added `GetLocation()` method to `notifications.Service` for timezone access
+- Enhanced `handleScheduleChange()` in watcher with date comparison logic
+- Date comparison uses `Truncate(24 * time.Hour)` for day-level equality check
+- Improved debug logging to show schedule dates when suppressing notifications
+
 ## [0.4.6] - 2026-02-07
 
 ### Fixed

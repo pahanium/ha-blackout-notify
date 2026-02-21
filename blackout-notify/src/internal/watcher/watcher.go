@@ -318,6 +318,26 @@ func (w *Watcher) handleScheduleChange(ctx context.Context, scheduleType string,
 		}
 	}
 
+	// Suppress notification if new scheduled time is for a different day (not today)
+	// This prevents spam when evening schedule updates reflect tomorrow's schedule
+	if shouldNotify && newTime != nil {
+		now := time.Now()
+		// Get timezone from notification service for correct date comparison
+		if loc := w.notifSvc.GetLocation(); loc != nil {
+			now = now.In(loc)
+			newTimeDate := newTime.In(loc).Truncate(24 * time.Hour)
+			todayDate := now.Truncate(24 * time.Hour)
+
+			if !newTimeDate.Equal(todayDate) {
+				logger.Debug("Suppressing schedule notification: new time %s is for %s (not today %s)",
+					formatTimePtr(newTime),
+					newTime.In(loc).Format("2006-01-02"),
+					now.Format("2006-01-02"))
+				shouldNotify = false
+			}
+		}
+	}
+
 	if shouldNotify {
 		if err := w.notifSvc.NotifyScheduleChanged(ctx, scheduleType, oldTime, newTime); err != nil {
 			logger.Error("Failed to send schedule change notification: %v", err)
