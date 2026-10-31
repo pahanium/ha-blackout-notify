@@ -8,13 +8,14 @@ cd "$(dirname "$0")/.."
 ADDON_NAME="blackout-notify"
 VERSION=$(grep "version:" blackout-notify/config.yaml | awk '{print $2}' | tr -d '"')
 ARCH=${1:-amd64}
+BUILD_FROM=$(grep "^  ${ARCH}:" blackout-notify/build.yaml | awk '{print $2}')
 
 echo "=== Building $ADDON_NAME v$VERSION for $ARCH ==="
 
 cd blackout-notify
 
 docker build \
-    --build-arg BUILD_FROM=ghcr.io/home-assistant/${ARCH}-base:3.18 \
+    --build-arg BUILD_FROM=${BUILD_FROM} \
     -t local/$ADDON_NAME:$VERSION \
     -t local/$ADDON_NAME:latest \
     .

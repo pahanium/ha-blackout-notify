@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.2] - 2026-10-31
+
+### Security
+- 🔒 **Go 1.26**: Build with Go 1.26 (Go 1.24 no longer receives security fixes); `govulncheck` reports no vulnerabilities
+- 🔒 **Base images**: Home Assistant base images updated from Alpine 3.18 (EOL) to 3.24 (amd64, aarch64) and 3.22 (armv7, last published)
+- 📦 **Dependencies**: Updated `gorilla/websocket` 1.5.3, `modernc.org/sqlite` 1.61.1 and transitive modules; dropped vulnerable `golang.org/x/net` 0.17.0
+
+### Changed
+- 🔧 **CI**: Go version taken from `go.mod`, base images from `build.yaml`; GitHub Actions updated to current majors; golangci-lint v2 with `.golangci.yml`
+
 ## [0.5.1] - 2026-10-31
 
 ### Fixed

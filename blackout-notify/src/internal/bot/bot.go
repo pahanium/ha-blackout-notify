@@ -200,7 +200,7 @@ func (b *Bot) handleHelp() string {
 func (b *Bot) handleStatus(ctx context.Context) (string, error) {
 	err := b.haClient.CheckConnection(ctx)
 	if err != nil {
-		return "", fmt.Errorf("Home Assistant is not reachable: %v", err)
+		return "", fmt.Errorf("home assistant is not reachable: %w", err)
 	}
 
 	entities, err := b.haClient.GetStates(ctx)
@@ -243,23 +243,23 @@ func (b *Bot) handleEntities(ctx context.Context, args string) (string, error) {
 	sb.WriteString("📋 *Entities Summary:*\n\n")
 
 	if args != "" {
-		sb.WriteString(fmt.Sprintf("Domain: `%s`\n\n", args))
+		fmt.Fprintf(&sb, "Domain: `%s`\n\n", args)
 		// Show first 20 entities
 		count := 0
 		for _, e := range entities {
 			if count >= 20 {
-				sb.WriteString(fmt.Sprintf("\n... and %d more", len(entities)-20))
+				fmt.Fprintf(&sb, "\n... and %d more", len(entities)-20)
 				break
 			}
 			icon := getStateIcon(e.State)
-			sb.WriteString(fmt.Sprintf("%s `%s`: %s\n", icon, e.EntityID, e.State))
+			fmt.Fprintf(&sb, "%s `%s`: %s\n", icon, e.EntityID, e.State)
 			count++
 		}
 	} else {
 		for domain, count := range domains {
-			sb.WriteString(fmt.Sprintf("• %s: %d\n", domain, count))
+			fmt.Fprintf(&sb, "• %s: %d\n", domain, count)
 		}
-		sb.WriteString(fmt.Sprintf("\nTotal: %d entities", len(entities)))
+		fmt.Fprintf(&sb, "\nTotal: %d entities", len(entities))
 		sb.WriteString("\n\nUse `/entities <domain>` to list specific domain")
 	}
 
@@ -279,21 +279,21 @@ func (b *Bot) handleState(ctx context.Context, entityID string) (string, error) 
 	icon := getStateIcon(entity.State)
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("%s *%s*\n\n", icon, entity.EntityID))
-	sb.WriteString(fmt.Sprintf("State: `%s`\n", entity.State))
+	fmt.Fprintf(&sb, "%s *%s*\n\n", icon, entity.EntityID)
+	fmt.Fprintf(&sb, "State: `%s`\n", entity.State)
 
 	// Show main attributes
 	if name, ok := entity.Attributes["friendly_name"].(string); ok {
-		sb.WriteString(fmt.Sprintf("Name: %s\n", name))
+		fmt.Fprintf(&sb, "Name: %s\n", name)
 	}
 	if brightness, ok := entity.Attributes["brightness"].(float64); ok {
-		sb.WriteString(fmt.Sprintf("Brightness: %.0f%%\n", brightness/255*100))
+		fmt.Fprintf(&sb, "Brightness: %.0f%%\n", brightness/255*100)
 	}
 	if temp, ok := entity.Attributes["temperature"].(float64); ok {
-		sb.WriteString(fmt.Sprintf("Temperature: %.1f\n", temp))
+		fmt.Fprintf(&sb, "Temperature: %.1f\n", temp)
 	}
 	if unit, ok := entity.Attributes["unit_of_measurement"].(string); ok {
-		sb.WriteString(fmt.Sprintf("Unit: %s\n", unit))
+		fmt.Fprintf(&sb, "Unit: %s\n", unit)
 	}
 
 	return sb.String(), nil

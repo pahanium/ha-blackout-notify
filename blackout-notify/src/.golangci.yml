@@ -1,0 +1,7 @@
+version: "2"
+
+linters:
+  exclusions:
+    presets:
+      # Unchecked Close/Setenv/print errors are idiomatic in defers and tests
+      - std-error-handling

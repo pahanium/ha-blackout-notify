@@ -53,7 +53,7 @@ func (s *Service) NotifyPowerOn(ctx context.Context, previousOffDurationSec int6
 	// (longer durations likely mean the bot was not running and may have missed events)
 	if previousOffDurationSec > 60 && previousOffDurationSec < 86400 {
 		durationStr := formatDuration(time.Duration(previousOffDurationSec) * time.Second)
-		sb.WriteString(fmt.Sprintf("\n%s", fmt.Sprintf(MsgWasOff, durationStr)))
+		fmt.Fprintf(&sb, "\n%s", fmt.Sprintf(MsgWasOff, durationStr))
 	}
 
 	// Get next scheduled off time
@@ -63,9 +63,9 @@ func (s *Service) NotifyPowerOn(ctx context.Context, previousOffDurationSec int6
 			logger.Warn("Failed to get next off time: %v", err)
 		} else if nextOff != nil {
 			duration := nextOff.Sub(now)
-			sb.WriteString(fmt.Sprintf("\n\n%s\n%s",
+			fmt.Fprintf(&sb, "\n\n%s\n%s",
 				fmt.Sprintf(MsgScheduleOffIn, formatDuration(duration), nextOff.In(s.location).Format("15:04")),
-				MsgScheduleSource))
+				MsgScheduleSource)
 		}
 	}
 
@@ -89,7 +89,7 @@ func (s *Service) NotifyPowerOff(ctx context.Context, previousOnDurationSec int6
 	// (longer durations likely mean the bot was not running and may have missed events)
 	if previousOnDurationSec > 60 && previousOnDurationSec < 86400 {
 		durationStr := formatDuration(time.Duration(previousOnDurationSec) * time.Second)
-		sb.WriteString(fmt.Sprintf("\n%s", fmt.Sprintf(MsgWasOn, durationStr)))
+		fmt.Fprintf(&sb, "\n%s", fmt.Sprintf(MsgWasOn, durationStr))
 	}
 
 	// Get next scheduled on time
@@ -99,9 +99,9 @@ func (s *Service) NotifyPowerOff(ctx context.Context, previousOnDurationSec int6
 			logger.Warn("Failed to get next on time: %v", err)
 		} else if nextOn != nil {
 			duration := nextOn.Sub(now)
-			sb.WriteString(fmt.Sprintf("\n\n%s\n%s",
+			fmt.Fprintf(&sb, "\n\n%s\n%s",
 				fmt.Sprintf(MsgScheduleOnIn, formatDuration(duration), nextOn.In(s.location).Format("15:04")),
-				MsgScheduleSource))
+				MsgScheduleSource)
 		}
 	}
 
@@ -218,19 +218,19 @@ func (s *Service) NotifyScheduleChanged(ctx context.Context, scheduleType string
 	now := time.Now().In(s.location)
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("%s\n\n", MsgScheduleUpdate))
+	fmt.Fprintf(&sb, "%s\n\n", MsgScheduleUpdate)
 
 	if scheduleType == "on" {
 		if newTime != nil {
 			duration := newTime.Sub(now)
-			sb.WriteString(fmt.Sprintf("%s\n",
-				fmt.Sprintf(MsgScheduleOnIn, formatDuration(duration), newTime.In(s.location).Format("15:04"))))
+			fmt.Fprintf(&sb, "%s\n",
+				fmt.Sprintf(MsgScheduleOnIn, formatDuration(duration), newTime.In(s.location).Format("15:04")))
 		}
 	} else {
 		if newTime != nil {
 			duration := newTime.Sub(now)
-			sb.WriteString(fmt.Sprintf("%s\n",
-				fmt.Sprintf(MsgScheduleOffIn, formatDuration(duration), newTime.In(s.location).Format("15:04"))))
+			fmt.Fprintf(&sb, "%s\n",
+				fmt.Sprintf(MsgScheduleOffIn, formatDuration(duration), newTime.In(s.location).Format("15:04")))
 		}
 	}
 
@@ -303,10 +303,10 @@ func (s *Service) NotifyYasnoScheduleTomorrow(ctx context.Context, events []home
 
 	if len(outages) == 0 {
 		// No outages tomorrow
-		sb.WriteString(fmt.Sprintf(MsgYasnoNoOutagesTomorrow, dateStr, groupStr))
+		fmt.Fprintf(&sb, MsgYasnoNoOutagesTomorrow, dateStr, groupStr)
 	} else {
 		// Has outages
-		sb.WriteString(fmt.Sprintf(MsgYasnoScheduleTomorrow, dateStr, groupStr))
+		fmt.Fprintf(&sb, MsgYasnoScheduleTomorrow, dateStr, groupStr)
 		sb.WriteString("\n")
 
 		// Format each outage interval
@@ -325,9 +325,9 @@ func (s *Service) NotifyYasnoScheduleTomorrow(ctx context.Context, events []home
 			startTime = startTime.In(s.location)
 			endTime = endTime.In(s.location)
 
-			sb.WriteString(fmt.Sprintf("\n"+MsgYasnoOutageInterval,
+			fmt.Fprintf(&sb, "\n"+MsgYasnoOutageInterval,
 				startTime.Format("15:04"),
-				endTime.Format("15:04")))
+				endTime.Format("15:04"))
 		}
 	}
 
@@ -454,10 +454,10 @@ func (s *Service) FormatYasnoSchedule(events []homeassistant.CalendarEvent, date
 
 	if len(outages) == 0 {
 		// No outages
-		sb.WriteString(fmt.Sprintf(MsgYasnoNoOutagesTomorrow, dateStr, groupStr))
+		fmt.Fprintf(&sb, MsgYasnoNoOutagesTomorrow, dateStr, groupStr)
 	} else {
 		// Has outages
-		sb.WriteString(fmt.Sprintf(MsgYasnoScheduleTomorrow, dateStr, groupStr))
+		fmt.Fprintf(&sb, MsgYasnoScheduleTomorrow, dateStr, groupStr)
 		sb.WriteString("\n")
 
 		// Format each outage interval
@@ -476,9 +476,9 @@ func (s *Service) FormatYasnoSchedule(events []homeassistant.CalendarEvent, date
 			startTime = startTime.In(s.location)
 			endTime = endTime.In(s.location)
 
-			sb.WriteString(fmt.Sprintf("\n"+MsgYasnoOutageInterval,
+			fmt.Fprintf(&sb, "\n"+MsgYasnoOutageInterval,
 				startTime.Format("15:04"),
-				endTime.Format("15:04")))
+				endTime.Format("15:04"))
 		}
 	}
 
