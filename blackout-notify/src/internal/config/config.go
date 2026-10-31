@@ -17,8 +17,7 @@ type Config struct {
 	HAToken  string
 
 	// General settings
-	LogLevel        string
-	PollingInterval int
+	LogLevel string
 
 	// Power monitoring settings
 	NotificationChatIDs []int64 // Chat IDs for power notifications (can be channels)
@@ -47,11 +46,10 @@ const (
 // Load loads configuration from environment variables
 func Load() (*Config, error) {
 	cfg := &Config{
-		TelegramToken:   os.Getenv("TELEGRAM_TOKEN"),
-		HAApiURL:        getEnvOrDefault("HA_API_URL", "http://supervisor/core/api"),
-		HAToken:         os.Getenv("HA_TOKEN"),
-		LogLevel:        getEnvOrDefault("LOG_LEVEL", "info"),
-		PollingInterval: getEnvAsInt("POLLING_INTERVAL", 30),
+		TelegramToken: os.Getenv("TELEGRAM_TOKEN"),
+		HAApiURL:      getEnvOrDefault("HA_API_URL", "http://supervisor/core/api"),
+		HAToken:       os.Getenv("HA_TOKEN"),
+		LogLevel:      getEnvOrDefault("LOG_LEVEL", "info"),
 
 		// Power monitoring settings
 		WatchedEntityID: os.Getenv("WATCHED_ENTITY_ID"),
@@ -121,15 +119,6 @@ func (c *Config) IsYasnoMonitoringEnabled() bool {
 func getEnvOrDefault(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
-	}
-	return defaultValue
-}
-
-func getEnvAsInt(key string, defaultValue int) int {
-	if value := os.Getenv(key); value != "" {
-		if intValue, err := strconv.Atoi(value); err == nil {
-			return intValue
-		}
 	}
 	return defaultValue
 }

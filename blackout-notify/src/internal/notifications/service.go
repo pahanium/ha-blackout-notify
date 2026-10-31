@@ -7,9 +7,9 @@ import (
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	"github.com/yourusername/haaddon/telegram-bot/internal/config"
-	"github.com/yourusername/haaddon/telegram-bot/internal/homeassistant"
-	"github.com/yourusername/haaddon/telegram-bot/internal/logger"
+	"github.com/pahanium/ha-blackout-notify/internal/config"
+	"github.com/pahanium/ha-blackout-notify/internal/homeassistant"
+	"github.com/pahanium/ha-blackout-notify/internal/logger"
 )
 
 // Service handles power notifications

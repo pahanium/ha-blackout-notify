@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yourusername/haaddon/telegram-bot/internal/homeassistant"
+	"github.com/pahanium/ha-blackout-notify/internal/homeassistant"
 )
 
 // testableWatcher wraps Watcher to track notification calls

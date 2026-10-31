@@ -1,4 +1,4 @@
-module github.com/yourusername/haaddon/telegram-bot
+module github.com/pahanium/ha-blackout-notify
 
 go 1.26.0
 

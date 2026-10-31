@@ -1,6 +1,5 @@
-# Local development and testing
-# This docker-compose is ONLY for local development
-# Uses Dockerfile.dev which builds a simple Go binary without s6-overlay
+# Local development: runs the bot from Dockerfile.dev (no s6-overlay/bashio)
+# with settings from .env. Use `make dev-up`.
 
 services:
   blackout-notify:
@@ -9,13 +8,10 @@ services:
       dockerfile: Dockerfile.dev
     env_file:
       - .env
-    restart: unless-stopped
-
-  # Optional: mock Home Assistant for tests
-  # homeassistant-mock:
-  #   image: python:3.11-slim
-  #   volumes:
-  #     - ./tests/mock_ha:/app
-  #   command: python /app/server.py
-  #   ports:
-  #     - "8123:8123"
+    environment:
+      # Keep statistics across rebuilds (overrides STATS_DB_PATH from .env)
+      STATS_DB_PATH: /data/power_stats.db
+    volumes:
+      - ./.data:/data
+    # No auto-restart: a config error should stop the container, not loop
+    restart: "no"

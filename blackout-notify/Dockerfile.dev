@@ -15,7 +15,7 @@ COPY src/ .
 RUN go mod download
 
 # Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o telegram-bot ./cmd/bot
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o blackout-notify ./cmd/bot
 
 # Production stage - minimal image
 FROM alpine:3.24
@@ -25,7 +25,7 @@ RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app
 
 # Copy binary from builder
-COPY --from=builder /build/telegram-bot /app/telegram-bot
+COPY --from=builder /build/blackout-notify /app/blackout-notify
 
 # Run the binary directly (reads from environment variables)
-CMD ["/app/telegram-bot"]
+CMD ["/app/blackout-notify"]

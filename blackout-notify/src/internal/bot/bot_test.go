@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yourusername/haaddon/telegram-bot/internal/config"
+	"github.com/pahanium/ha-blackout-notify/internal/config"
 )
 
 func TestHandleStatsWithoutStatsProvider(t *testing.T) {

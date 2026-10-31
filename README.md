@@ -71,13 +71,14 @@ log_level: "info"                          # debug/info/warn/error
 
 | Command | Description |
 |---------|-------------|
-| `/start` | Welcome message and command list |
-| `/status` | Home Assistant status |
-| `/entities` | List available entities |
-| `/state <entity_id>` | Get entity state |
-| `/turn_on <entity_id>` | Turn on entity |
-| `/turn_off <entity_id>` | Turn off entity |
+| `/start` | Welcome message |
+| `/help` | Command list |
+| `/status` | Home Assistant connection status |
+| `/stats [today\|week\|month]` | Power on/off statistics |
+| `/calendar [tomorrow]` | Yasno outage schedule for today or tomorrow |
 | `/chatid` | Show your chat ID |
+
+The bot only reads from Home Assistant; it cannot control entities.
 
 ## Notification Examples
 
@@ -107,60 +108,22 @@ log_level: "info"                          # debug/info/warn/error
 
 ## Local Development
 
-### Option 1: Direct Go Build (Easiest)
-
-The bot now automatically loads `.env` file for local development:
+Requires Go 1.26+ and, for container runs, Docker. All commands are in the `Makefile` (`make help`).
 
 ```bash
-# 1. Create .env file (if not exists)
-cp .env.example .env
-nano .env  # Fill in your values (HA_API_URL, TELEGRAM_TOKEN, etc.)
-
-# 2. Build the binary
-cd blackout-notify/src
-go build -o ../bin/blackout-notify ./cmd/bot
-
-# 3. Run from src directory (it will auto-load ../../.env)
-cd blackout-notify/src
-../bin/blackout-notify
+cp .env.example .env   # fill in: dev bot token, HA URL + long-lived token, entity IDs
+make run               # go run with .env (found in current dir or any parent)
+make test              # tests with race detector
+make lint              # gofmt, go vet, golangci-lint (same as CI)
+make check             # test + lint + govulncheck
+make dev-up            # run in Docker (Dockerfile.dev), stats DB kept in .data/
+make docker ARCH=aarch64   # build the production add-on image (aarch64|amd64|armv7)
 ```
 
-**Important notes:**
-- `.env` file must be in the repository root (not in `src/`)
-- Set `HA_API_URL` to your Home Assistant URL: `http://192.168.X.X:8123/api`
-- Set `STATS_DB_PATH=./power_stats.db` for local development (not `/data/power_stats.db`)
-- The bot will create `power_stats.db` in the current directory
-
-### Option 2: Docker Compose (Recommended)
-
-```bash
-# Create environment file
-cp .env.example .env
-nano .env  # Fill in your values
-
-# Start
-docker compose -f docker-compose.dev.yaml up --build
-
-# Stop
-docker compose -f docker-compose.dev.yaml down
-```
-
-### Option 3: Local Docker Build
-
-```bash
-# Build for amd64
-./scripts/docker-build.sh amd64
-
-# Or for ARM (Raspberry Pi)
-./scripts/docker-build.sh aarch64
-
-# Run
-docker run --rm \
-  -e TELEGRAM_TOKEN="xxx" \
-  -e HA_API_URL="http://192.168.1.100:8123/api" \
-  -e HA_TOKEN="xxx" \
-  local/blackout-notify:latest
-```
+Notes:
+- Use a **separate dev/beta Telegram bot and channel** in `.env`. Two instances polling the same bot token get `409 Conflict` from Telegram.
+- Local runs connect to your live Home Assistant (`HA_API_URL=http://<ha-ip>:8123/api`). The bot only reads states and calendar events, so this is safe.
+- `STATS_DB_PATH=./power_stats.db` for `make run`; `make dev-up` overrides it to `.data/power_stats.db`.
 
 ## Home Assistant Configuration
 
@@ -199,42 +162,7 @@ docker logs addon_local_blackout_notify
 
 ## Development
 
-### Testing
-
-```bash
-cd blackout-notify/src
-
-# Run all tests
-go test ./...
-
-# With verbose output
-go test -v ./...
-
-# With race detector and coverage
-go test -v -race -coverprofile=coverage.txt ./...
-```
-
-### Building
-
-```bash
-# Build optimized binary
-cd blackout-notify/src
-CGO_ENABLED=0 go build -ldflags="-w -s" -o ../bin/blackout-notify ./cmd/bot
-
-# Build Docker image for specific architecture
-cd ..
-./scripts/docker-build.sh amd64    # or aarch64, armv7
-```
-
-### Pre-deployment Checklist
-
-- [ ] Telegram token works (bot responds to `/start`)
-- [ ] HA token has API access
-- [ ] `allowed_chat_ids` configured (security!)
-- [ ] Tests pass: `go test ./...`
-- [ ] Docker image builds without errors
-- [ ] `config.yaml` has correct version
-- [ ] `CHANGELOG.md` updated
+See [Local Development](#local-development). Before a release: `make check`, `make docker`, bump `version` in `blackout-notify/config.yaml`, update `blackout-notify/CHANGELOG.md`.
 
 ## Project Structure
 
@@ -259,9 +187,9 @@ ha-blackout-notify/
 │           ├── watcher/          # Power state monitoring
 │           └── logger/           # Logging
 ├── scripts/
-│   ├── build.sh                  # Go build script
-│   └── docker-build.sh           # Docker build script
-├── docker-compose.dev.yaml       # Local development
+│   └── docker-build.sh           # Production image build (used by make docker)
+├── Makefile                      # Dev commands (make help)
+├── docker-compose.dev.yaml       # Local development in Docker
 └── .env.example                  # Environment template
 ```
 
@@ -278,7 +206,7 @@ GitHub Actions workflow (`.github/workflows/build.yaml`) automatically:
 1. Fork the repository
 2. Create a feature branch
 3. Make changes and add tests
-4. Run `go test ./...` to verify
+4. Run `make check` to verify
 5. Update `CHANGELOG.md`
 6. Bump version in `config.yaml`
 7. Create a pull request

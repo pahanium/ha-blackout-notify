@@ -9,7 +9,6 @@
 export TELEGRAM_TOKEN=$(bashio::config 'telegram_token')
 export ALLOWED_CHAT_IDS=$(bashio::config 'allowed_chat_ids')
 export LOG_LEVEL=$(bashio::config 'log_level')
-export POLLING_INTERVAL=$(bashio::config 'polling_interval')
 
 # Power monitoring settings
 export NOTIFICATION_CHAT_IDS=$(bashio::config 'notification_chat_ids')

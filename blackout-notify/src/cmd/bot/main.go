@@ -4,22 +4,22 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/joho/godotenv"
-	"github.com/yourusername/haaddon/telegram-bot/internal/bot"
-	"github.com/yourusername/haaddon/telegram-bot/internal/config"
-	"github.com/yourusername/haaddon/telegram-bot/internal/homeassistant"
-	"github.com/yourusername/haaddon/telegram-bot/internal/logger"
-	"github.com/yourusername/haaddon/telegram-bot/internal/notifications"
-	"github.com/yourusername/haaddon/telegram-bot/internal/stats"
-	"github.com/yourusername/haaddon/telegram-bot/internal/watcher"
+	"github.com/pahanium/ha-blackout-notify/internal/bot"
+	"github.com/pahanium/ha-blackout-notify/internal/config"
+	"github.com/pahanium/ha-blackout-notify/internal/homeassistant"
+	"github.com/pahanium/ha-blackout-notify/internal/logger"
+	"github.com/pahanium/ha-blackout-notify/internal/notifications"
+	"github.com/pahanium/ha-blackout-notify/internal/stats"
+	"github.com/pahanium/ha-blackout-notify/internal/watcher"
 )
 
 func main() {
-	// Load .env file if it exists (for local development)
-	// Ignore error if file doesn't exist (production uses env vars directly)
-	_ = godotenv.Load("../../.env")
+	// Load .env for local development (production gets env vars from the add-on run script)
+	loadDotEnv()
 
 	// Load configuration from environment variables
 	cfg, err := config.Load()
@@ -30,7 +30,7 @@ func main() {
 	// Initialize logger with configured level
 	logger.SetLevel(cfg.LogLevel)
 	logger.Info("Starting Telegram Bot for Home Assistant")
-	logger.Debug("Config loaded: HA URL=%s, Polling=%ds", cfg.HAApiURL, cfg.PollingInterval)
+	logger.Debug("Config loaded: HA URL=%s", cfg.HAApiURL)
 
 	// Create context with cancellation support
 	ctx, cancel := context.WithCancel(context.Background())
@@ -142,4 +142,27 @@ func main() {
 	// Stop Telegram bot
 	telegramBot.Stop()
 	logger.Info("Bot stopped successfully")
+}
+
+// loadDotEnv loads the nearest .env file found in the current directory or its parents,
+// so the bot can be started from the repo root or from src/. Existing env vars win.
+func loadDotEnv() {
+	dir, err := os.Getwd()
+	if err != nil {
+		return
+	}
+	for {
+		path := filepath.Join(dir, ".env")
+		if _, err := os.Stat(path); err == nil {
+			if err := godotenv.Load(path); err != nil {
+				logger.Warn("Failed to load %s: %v", path, err)
+			}
+			return
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return
+		}
+		dir = parent
+	}
 }

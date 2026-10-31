@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.0] - 2026-10-31
+
+### Removed
+- ⚠️ **Entity control commands**: `/entities`, `/state`, `/turn_on`, `/turn_off`, `/toggle` are removed. The bot is now read-only towards Home Assistant (`/status`, `/stats`, `/calendar`, `/chatid` remain)
+- 🧹 **`polling_interval` option**: Was never used; Supervisor ignores it in existing configurations
+
+### Fixed
+- 🐛 **Add-on shutdown on failure**: `finish` script now follows the Home Assistant template and halts the add-on with the service's exit code (previously sent `SIGTERM` to the PID equal to the exit code)
+
+### Changed
+- 🛠️ **Local development**: `Makefile` (`make help`), `.env` is found in the current directory or any parent, dev Docker Compose keeps the stats DB in `.data/` and no longer restart-loops; `scripts/build.sh` removed
+- 🔧 **Go module path**: `github.com/pahanium/ha-blackout-notify`
+
 ## [0.5.3] - 2026-10-31
 
 ### Fixed

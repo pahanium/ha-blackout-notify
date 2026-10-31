@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/yourusername/haaddon/telegram-bot/internal/logger"
+	"github.com/pahanium/ha-blackout-notify/internal/logger"
 )
 
 // WebSocket message types
