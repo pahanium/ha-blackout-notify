@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.1] - 2026-10-31
+
+### Fixed
+- 🐛 **`/stats` crash without power monitoring**: The command no longer panics when `watched_entity_id` is empty; it replies that statistics are not available
+
+### Changed
+- 🔧 **Go 1.24 everywhere**: CI and `Dockerfile.dev` now use Go 1.24, matching `go.mod` and the production Dockerfile
+- 📝 **Docs**: Condensed `AGENTS.md`, added `CLAUDE.md`, fixed the add-on entry script path in docs, added Yasno variables to `.env.example`
+
 ## [0.5.0] - 2026-02-21
 
 ### Added

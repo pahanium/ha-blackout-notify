@@ -355,6 +355,11 @@ func getStateIcon(state string) string {
 }
 
 func (b *Bot) handleStats(ctx context.Context, args string) (string, error) {
+	// Check if statistics are available (power monitoring may be disabled)
+	if b.statsDB == nil || b.statsRecorder == nil {
+		return "❌ Statistics not available. Please set WATCHED_ENTITY_ID in config.", nil
+	}
+
 	// Parse period argument
 	period := strings.ToLower(strings.TrimSpace(args))
 	if period == "" {

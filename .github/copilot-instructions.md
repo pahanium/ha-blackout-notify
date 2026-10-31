@@ -16,7 +16,7 @@ internal/notifications/  → Notification formatting and delivery
 internal/logger/         → Simple leveled logging
 ```
 
-**Data flow**: `rootfs/run.sh` (bashio) → env vars → `config.Load()` → `main.go` creates `haClient`, `wsClient`, `bot`, `watcher`, `notifSvc` → watcher subscribes to HA WebSocket events → triggers notifications
+**Data flow**: `rootfs/etc/services.d/blackout-notify/run` (bashio) → env vars → `config.Load()` → `main.go` creates `haClient`, `wsClient`, `bot`, `watcher`, `notifSvc` → watcher subscribes to HA WebSocket events → triggers notifications
 
 ## Key Patterns
 
@@ -74,7 +74,7 @@ docker compose -f docker-compose.dev.yaml up --build
 
 - `config.yaml`: Add-on metadata, options schema, version
 - `rootfs/etc/services.d/blackout-notify/run`: s6-overlay entry point using bashio
-- `Dockerfile`: Multi-stage build (golang:1.21-alpine → HA base image)
+- `Dockerfile`: Multi-stage build (golang:1.24-alpine → HA base image)
 
 When updating add-on:
 1. Bump `version` in `blackout-notify/config.yaml`
