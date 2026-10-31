@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.1] - 2026-10-31
+
+### Fixed
+- 🐛 **Lost power changes**: Debounce dropped any change within 5s of the previous one, so a quick on → off → on → off could leave the bot stuck in the wrong state. Now a state is applied once it stays stable for 5s, and the outage time is taken from the first event
+- 🐛 **Outage during reconnect**: on → unavailable → off is now reported (previously treated as "initial state" and skipped). off → unavailable → off still keeps the outage duration
+- 🐛 **"Today" check near midnight**: Schedule notifications compared days at UTC midnight; now uses the configured timezone
+- 🐛 **Tomorrow's Yasno schedule lost**: A change of the "today" sensor blocked the "tomorrow" sensor for 30s; debounce is now per sensor. Tomorrow's date is computed in the configured timezone
+- 🐛 **Stale schedule times**: Next on/off sensor updates arriving together no longer block each other
+
+### Changed
+- 🧪 **Tests run real code**: Watcher and notifications depend on small interfaces and are tested with fakes (the old watcher tests exercised a copy of the logic)
+
 ## [0.6.0] - 2026-10-31
 
 ### Removed

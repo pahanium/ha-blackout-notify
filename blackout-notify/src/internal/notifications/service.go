@@ -12,16 +12,28 @@ import (
 	"github.com/pahanium/ha-blackout-notify/internal/logger"
 )
 
+// Sender sends Telegram messages (implemented by *tgbotapi.BotAPI)
+type Sender interface {
+	Send(c tgbotapi.Chattable) (tgbotapi.Message, error)
+}
+
+// HAReader reads Home Assistant data (implemented by *homeassistant.Client)
+type HAReader interface {
+	GetState(ctx context.Context, entityID string) (*homeassistant.Entity, error)
+	GetCalendarEvents(ctx context.Context, calendarID, startDateTime, endDateTime string) ([]homeassistant.CalendarEvent, error)
+}
+
 // Service handles power notifications
 type Service struct {
-	bot      *tgbotapi.BotAPI
+	bot      Sender
 	config   *config.Config
-	haClient *homeassistant.Client
+	haClient HAReader
 	location *time.Location
+	now      func() time.Time
 }
 
 // NewService creates a new notification service
-func NewService(bot *tgbotapi.BotAPI, cfg *config.Config, haClient *homeassistant.Client) (*Service, error) {
+func NewService(bot Sender, cfg *config.Config, haClient HAReader) (*Service, error) {
 	loc, err := time.LoadLocation(cfg.Timezone)
 	if err != nil {
 		logger.Warn("Failed to load timezone %s, using UTC: %v", cfg.Timezone, err)
@@ -33,6 +45,7 @@ func NewService(bot *tgbotapi.BotAPI, cfg *config.Config, haClient *homeassistan
 		config:   cfg,
 		haClient: haClient,
 		location: loc,
+		now:      time.Now,
 	}, nil
 }
 
@@ -370,7 +383,7 @@ func (s *Service) GetYasnoCalendarEvents(ctx context.Context, calendarID string,
 
 // sendToAllChatsWithQuietHours sends message to all chats, disabling notification during quiet hours (23:00-06:00)
 func (s *Service) sendToAllChatsWithQuietHours(ctx context.Context, text string) error {
-	now := time.Now().In(s.location)
+	now := s.now().In(s.location)
 	hour := now.Hour()
 
 	// Quiet hours: 23:00 (23) to 06:00 (6)

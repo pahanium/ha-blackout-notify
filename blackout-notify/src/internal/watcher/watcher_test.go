@@ -6,97 +6,479 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pahanium/ha-blackout-notify/internal/config"
 	"github.com/pahanium/ha-blackout-notify/internal/homeassistant"
 )
 
-// testableWatcher wraps Watcher to track notification calls
-type testableWatcher struct {
-	*Watcher
-	mu       sync.Mutex
-	onCalls  int
-	offCalls int
+const testDebounce = 20 * time.Millisecond
+
+// fakeNotifier records calls instead of sending Telegram messages
+type fakeNotifier struct {
+	mu            sync.Mutex
+	powerOn       []int64
+	powerOff      []int64
+	scheduleCalls []string
+	yasnoTomorrow int
+	yasnoDates    []time.Time
+	emergency     int
+	scheduled     map[string]*time.Time
+	loc           *time.Location
 }
 
-func (tw *testableWatcher) trackPowerOn() {
-	tw.mu.Lock()
-	defer tw.mu.Unlock()
-	tw.onCalls++
+func (f *fakeNotifier) NotifyPowerOn(ctx context.Context, d int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.powerOn = append(f.powerOn, d)
+	return nil
 }
 
-func (tw *testableWatcher) trackPowerOff() {
-	tw.mu.Lock()
-	defer tw.mu.Unlock()
-	tw.offCalls++
+func (f *fakeNotifier) NotifyPowerOff(ctx context.Context, d int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.powerOff = append(f.powerOff, d)
+	return nil
 }
 
-func (tw *testableWatcher) getPowerOnCalls() int {
-	tw.mu.Lock()
-	defer tw.mu.Unlock()
-	return tw.onCalls
+func (f *fakeNotifier) NotifyScheduleChanged(ctx context.Context, scheduleType string, oldTime, newTime *time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.scheduleCalls = append(f.scheduleCalls, scheduleType)
+	return nil
 }
 
-func (tw *testableWatcher) getPowerOffCalls() int {
-	tw.mu.Lock()
-	defer tw.mu.Unlock()
-	return tw.offCalls
+func (f *fakeNotifier) NotifyYasnoScheduleTomorrow(ctx context.Context, events []homeassistant.CalendarEvent, groupName string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.yasnoTomorrow++
+	return nil
 }
 
-// Override handleStateChange to track calls instead of sending real notifications
-func (tw *testableWatcher) testHandleStateChange(ctx context.Context, oldState, newState *homeassistant.Entity) {
-	if newState == nil {
-		return
+func (f *fakeNotifier) NotifyYasnoEmergencyShutdown(ctx context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.emergency++
+	return nil
+}
+
+func (f *fakeNotifier) GetScheduledTime(ctx context.Context, sensorID string) (*time.Time, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.scheduled[sensorID], nil
+}
+
+func (f *fakeNotifier) GetYasnoCalendarEvents(ctx context.Context, calendarID string, date time.Time) ([]homeassistant.CalendarEvent, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.yasnoDates = append(f.yasnoDates, date)
+	return nil, nil
+}
+
+func (f *fakeNotifier) GetLocation() *time.Location { return f.loc }
+
+func (f *fakeNotifier) counts() (on, off int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.powerOn), len(f.powerOff)
+}
+
+// fakeRecorder records state changes and returns a fixed previous duration
+type fakeRecorder struct {
+	mu        sync.Mutex
+	states    []string
+	times     []time.Time
+	lastState string
+	duration  int64
+}
+
+func (r *fakeRecorder) RecordStateChange(ctx context.Context, state string, changedAt time.Time) (string, int64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	prev := r.lastState
+	r.states = append(r.states, state)
+	r.times = append(r.times, changedAt)
+	r.lastState = state
+	return prev, r.duration, nil
+}
+
+func (r *fakeRecorder) recorded() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.states...)
+}
+
+func newTestWatcher(t *testing.T, initial PowerState) (*Watcher, *fakeNotifier, *fakeRecorder) {
+	t.Helper()
+	kyiv, err := time.LoadLocation("Europe/Kyiv")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	n := &fakeNotifier{scheduled: map[string]*time.Time{}, loc: kyiv}
+	r := &fakeRecorder{lastState: string(initial), duration: 3600}
+	cfg := &config.Config{
+		WatchedEntityID:       "binary_sensor.power",
+		NextOnSensorID:        "sensor.next_on",
+		NextOffSensorID:       "sensor.next_off",
+		YasnoTodaySensorID:    "sensor.yasno_today",
+		YasnoTomorrowSensorID: "sensor.yasno_tomorrow",
+		YasnoCalendarID:       "calendar.yasno_kiiv_2_1_planned_outages",
+	}
+	w := NewWatcher(cfg, nil, nil, n, r)
+	w.debounceTime = testDebounce
+	w.lastState = initial
+	t.Cleanup(w.Stop)
+	return w, n, r
+}
+
+func send(w *Watcher, state string) {
+	w.handleStateChange(context.Background(), nil, &homeassistant.Entity{EntityID: "binary_sensor.power", State: state})
+}
+
+// settle waits until pending debounce timers have fired
+func settle() {
+	time.Sleep(testDebounce * 4)
+}
+
+func TestPowerChange_NotifiesAfterDebounce(t *testing.T) {
+	w, n, r := newTestWatcher(t, PowerStateOn)
+
+	send(w, "off")
+	if on, off := n.counts(); on+off != 0 {
+		t.Fatalf("notification sent before debounce expired: on=%d off=%d", on, off)
 	}
 
-	newPowerState := normalizeState(newState.State)
-
-	tw.mu.Lock()
-	previousState := tw.lastState
-	timeSinceLastChange := time.Since(tw.lastChange)
-	tw.mu.Unlock()
-
-	// Skip if state hasn't actually changed
-	if newPowerState == previousState {
-		return
+	settle()
+	on, off := n.counts()
+	if on != 0 || off != 1 {
+		t.Fatalf("want 1 off notification, got on=%d off=%d", on, off)
 	}
-
-	// Debounce rapid changes
-	if timeSinceLastChange < tw.debounceTime {
-		return
+	if n.powerOff[0] != 3600 {
+		t.Errorf("want previous duration 3600 from recorder, got %d", n.powerOff[0])
 	}
-
-	// Update state
-	tw.mu.Lock()
-	tw.lastState = newPowerState
-	tw.lastChange = time.Now()
-	tw.mu.Unlock()
-
-	// Skip notification if transitioning from unknown state
-	if previousState == PowerStateUnknown {
-		return
+	if got := r.recorded(); len(got) != 1 || got[0] != "off" {
+		t.Errorf("want recorded [off], got %v", got)
 	}
-
-	// Track notification calls
-	switch newPowerState {
-	case PowerStateOn:
-		tw.trackPowerOn()
-	case PowerStateOff:
-		tw.trackPowerOff()
+	if w.GetCurrentState() != PowerStateOff {
+		t.Errorf("want state off, got %s", w.GetCurrentState())
 	}
 }
 
-func createTestableWatcher() *testableWatcher {
-	w := &Watcher{
-		config:       nil, // Not needed for unit tests
-		wsClient:     nil,
-		haClient:     nil,
-		notifSvc:     nil,
-		lastState:    PowerStateUnknown,
-		debounceTime: 5 * time.Second,
-		mu:           sync.Mutex{},
+func TestPowerChange_RecordsTimeOfFirstEvent(t *testing.T) {
+	w, _, r := newTestWatcher(t, PowerStateOn)
+
+	before := time.Now()
+	send(w, "off")
+	settle()
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.times) != 1 {
+		t.Fatalf("want 1 recorded change, got %d", len(r.times))
+	}
+	if r.times[0].Before(before) || r.times[0].After(before.Add(testDebounce)) {
+		t.Errorf("change time %v should be when the event arrived (%v), not after debounce", r.times[0], before)
+	}
+}
+
+func TestPowerChange_FlickerIgnored(t *testing.T) {
+	w, n, r := newTestWatcher(t, PowerStateOn)
+
+	send(w, "off")
+	send(w, "on")
+	settle()
+
+	if on, off := n.counts(); on+off != 0 {
+		t.Errorf("flicker on->off->on should not notify, got on=%d off=%d", on, off)
+	}
+	if got := r.recorded(); len(got) != 0 {
+		t.Errorf("flicker should not be recorded, got %v", got)
+	}
+	if w.GetCurrentState() != PowerStateOn {
+		t.Errorf("want state on, got %s", w.GetCurrentState())
+	}
+}
+
+func TestPowerChange_LastStateOfBurstApplied(t *testing.T) {
+	w, n, _ := newTestWatcher(t, PowerStateOn)
+
+	// Old implementation dropped every change within 5s of the previous one,
+	// so the final "off" could be lost and the bot stayed "on"
+	send(w, "off")
+	send(w, "on")
+	send(w, "off")
+	settle()
+
+	if on, off := n.counts(); on != 0 || off != 1 {
+		t.Errorf("want exactly 1 off notification, got on=%d off=%d", on, off)
+	}
+	if w.GetCurrentState() != PowerStateOff {
+		t.Errorf("want state off, got %s", w.GetCurrentState())
+	}
+}
+
+func TestPowerChange_DuplicateEventsDoNotRestartDebounce(t *testing.T) {
+	w, n, r := newTestWatcher(t, PowerStateOn)
+
+	first := time.Now()
+	send(w, "off")
+	time.Sleep(testDebounce / 2)
+	send(w, "off") // attribute update with the same state
+	settle()
+
+	if _, off := n.counts(); off != 1 {
+		t.Fatalf("want 1 off notification, got %d", off)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.times[0].After(first.Add(testDebounce / 4)) {
+		t.Errorf("repeated event restarted debounce: recorded %v, first event at %v", r.times[0], first)
+	}
+}
+
+func TestPowerChange_NoChange(t *testing.T) {
+	w, n, r := newTestWatcher(t, PowerStateOn)
+
+	send(w, "on")
+	settle()
+
+	if on, off := n.counts(); on+off != 0 {
+		t.Errorf("same state should not notify, got on=%d off=%d", on, off)
+	}
+	if got := r.recorded(); len(got) != 0 {
+		t.Errorf("same state should not be recorded, got %v", got)
+	}
+}
+
+func TestPowerChange_InitialStateIsSilent(t *testing.T) {
+	w, n, r := newTestWatcher(t, PowerStateUnknown)
+
+	send(w, "off")
+	settle()
+
+	if on, off := n.counts(); on+off != 0 {
+		t.Errorf("initial state detection should not notify, got on=%d off=%d", on, off)
+	}
+	if got := r.recorded(); len(got) != 0 {
+		t.Errorf("initial state detection should not be recorded, got %v", got)
+	}
+	if w.GetCurrentState() != PowerStateOff {
+		t.Errorf("want state off, got %s", w.GetCurrentState())
+	}
+}
+
+func TestPowerChange_ReconnectKeepsDuration(t *testing.T) {
+	w, n, r := newTestWatcher(t, PowerStateOff)
+
+	// off -> unavailable -> off during WebSocket reconnect: nothing happened on the grid
+	send(w, "unavailable")
+	settle()
+	send(w, "off")
+	settle()
+
+	if on, off := n.counts(); on+off != 0 {
+		t.Errorf("reconnect should not notify, got on=%d off=%d", on, off)
+	}
+	if got := r.recorded(); len(got) != 0 {
+		t.Errorf("reconnect should not be recorded, got %v", got)
 	}
 
-	return &testableWatcher{
-		Watcher: w,
+	send(w, "on")
+	settle()
+	if on, _ := n.counts(); on != 1 {
+		t.Errorf("want 1 on notification after reconnect, got %d", on)
+	}
+}
+
+func TestPowerChange_OutageDuringReconnectReported(t *testing.T) {
+	w, n, r := newTestWatcher(t, PowerStateOn)
+
+	// on -> unknown -> off: power went out while HA was unreachable
+	send(w, "unknown")
+	settle()
+	send(w, "off")
+	settle()
+
+	if _, off := n.counts(); off != 1 {
+		t.Errorf("outage across reconnect must be reported, got off=%d", off)
+	}
+	if got := r.recorded(); len(got) != 1 || got[0] != "off" {
+		t.Errorf("want recorded [off], got %v", got)
+	}
+}
+
+func TestPowerChange_MultipleTransitions(t *testing.T) {
+	w, n, r := newTestWatcher(t, PowerStateOn)
+
+	for _, s := range []string{"off", "on", "off", "on"} {
+		send(w, s)
+		settle()
+	}
+
+	if on, off := n.counts(); on != 2 || off != 2 {
+		t.Errorf("want 2 on + 2 off notifications, got on=%d off=%d", on, off)
+	}
+	if got := r.recorded(); len(got) != 4 {
+		t.Errorf("want 4 recorded changes, got %v", got)
+	}
+}
+
+func TestPowerChange_StopCancelsPending(t *testing.T) {
+	w, n, _ := newTestWatcher(t, PowerStateOn)
+
+	send(w, "off")
+	w.Stop()
+	settle()
+
+	if on, off := n.counts(); on+off != 0 {
+		t.Errorf("pending change must be dropped on Stop, got on=%d off=%d", on, off)
+	}
+}
+
+func scheduleEvent(w *Watcher, scheduleType string) {
+	w.handleScheduleChange(context.Background(), scheduleType, nil, &homeassistant.Entity{State: "changed"})
+}
+
+func TestScheduleChange_NotifiesRelevantType(t *testing.T) {
+	w, n, _ := newTestWatcher(t, PowerStateOn)
+	inOneHour := time.Now().Add(time.Hour)
+	if !sameDay(inOneHour, time.Now(), n.loc) {
+		t.Skip("next hour is tomorrow in Kyiv; same-day suppression would apply")
+	}
+	n.scheduled["sensor.next_off"] = &inOneHour
+
+	scheduleEvent(w, "off")
+
+	if len(n.scheduleCalls) != 1 || n.scheduleCalls[0] != "off" {
+		t.Errorf("power on + next_off changed: want [off] notification, got %v", n.scheduleCalls)
+	}
+}
+
+func TestScheduleChange_IrrelevantTypeNotNotified(t *testing.T) {
+	w, n, _ := newTestWatcher(t, PowerStateOn)
+	inOneHour := time.Now().Add(time.Hour)
+	n.scheduled["sensor.next_on"] = &inOneHour
+
+	scheduleEvent(w, "on")
+
+	if len(n.scheduleCalls) != 0 {
+		t.Errorf("power on + next_on changed: want no notification, got %v", n.scheduleCalls)
+	}
+}
+
+func TestScheduleChange_OnAndOffTrackedIndependently(t *testing.T) {
+	w, n, _ := newTestWatcher(t, PowerStateOn)
+	on := time.Now().Add(2 * time.Hour)
+	off := time.Now().Add(time.Hour)
+	n.scheduled["sensor.next_on"] = &on
+	n.scheduled["sensor.next_off"] = &off
+
+	// Both sensors update at once when a new schedule is published
+	scheduleEvent(w, "on")
+	scheduleEvent(w, "off")
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.lastNextOnTime == nil || w.lastNextOffTime == nil {
+		t.Errorf("both schedule times must be stored, got on=%v off=%v", w.lastNextOnTime, w.lastNextOffTime)
+	}
+}
+
+func TestScheduleChange_CancellationKeepsOldTime(t *testing.T) {
+	w, n, _ := newTestWatcher(t, PowerStateOn)
+	old := time.Now().Add(-30 * time.Minute)
+	w.lastNextOffTime = &old
+	n.scheduled["sensor.next_off"] = nil
+
+	scheduleEvent(w, "off")
+
+	if w.lastNextOffTime == nil || !w.lastNextOffTime.Equal(old) {
+		t.Errorf("cancelled schedule must keep previous time, got %v", w.lastNextOffTime)
+	}
+	if len(n.scheduleCalls) != 0 {
+		t.Errorf("cancellation must not notify, got %v", n.scheduleCalls)
+	}
+}
+
+func TestScheduleChange_RecentlyPassedOldTimeSuppressed(t *testing.T) {
+	w, n, _ := newTestWatcher(t, PowerStateOn)
+	old := time.Now().Add(-30 * time.Minute)
+	next := time.Now().Add(time.Hour)
+	w.lastNextOffTime = &old
+	n.scheduled["sensor.next_off"] = &next
+
+	scheduleEvent(w, "off")
+
+	if len(n.scheduleCalls) != 0 {
+		t.Errorf("old time passed 30 min ago: want suppressed, got %v", n.scheduleCalls)
+	}
+	if w.lastNextOffTime == nil || !w.lastNextOffTime.Equal(next) {
+		t.Errorf("new time must be stored even when suppressed, got %v", w.lastNextOffTime)
+	}
+}
+
+func TestSameDay_UsesLocalMidnight(t *testing.T) {
+	kyiv, err := time.LoadLocation("Europe/Kyiv")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	// 00:30 and 23:00 Kyiv on the same date; UTC dates differ (previous day 21:30/22:30 vs 20:00/21:00)
+	early := time.Date(2026, 10, 31, 0, 30, 0, 0, kyiv)
+	late := time.Date(2026, 10, 31, 23, 0, 0, 0, kyiv)
+	nextDay := time.Date(2026, 11, 1, 0, 30, 0, 0, kyiv)
+
+	if !sameDay(early, late, kyiv) {
+		t.Error("00:30 and 23:00 Kyiv on the same date must be the same day")
+	}
+	if sameDay(late, nextDay, kyiv) {
+		t.Error("23:00 and next 00:30 Kyiv must be different days")
+	}
+}
+
+func yasnoEvent(w *Watcher, sensor, state string) {
+	e := &homeassistant.Entity{State: state}
+	if sensor == "today" {
+		w.handleYasnoTodayChange(context.Background(), nil, e)
+	} else {
+		w.handleYasnoTomorrowChange(context.Background(), nil, e)
+	}
+}
+
+func TestYasno_TodayChangeDoesNotBlockTomorrow(t *testing.T) {
+	w, n, _ := newTestWatcher(t, PowerStateOn)
+
+	yasnoEvent(w, "today", "emergency_shutdowns")
+	yasnoEvent(w, "tomorrow", "schedule_applies")
+
+	if n.emergency != 1 {
+		t.Errorf("want 1 emergency notification, got %d", n.emergency)
+	}
+	if n.yasnoTomorrow != 1 {
+		t.Errorf("tomorrow schedule must be sent even right after a today change, got %d", n.yasnoTomorrow)
+	}
+}
+
+func TestYasno_TomorrowUsesConfiguredTimezone(t *testing.T) {
+	w, n, _ := newTestWatcher(t, PowerStateOn)
+
+	yasnoEvent(w, "tomorrow", "schedule_applies")
+
+	if len(n.yasnoDates) != 1 {
+		t.Fatalf("want 1 calendar request, got %d", len(n.yasnoDates))
+	}
+	want := time.Now().In(n.loc).AddDate(0, 0, 1).Format("2006-01-02")
+	if got := n.yasnoDates[0].In(n.loc).Format("2006-01-02"); got != want {
+		t.Errorf("want tomorrow %s in Kyiv, got %s", want, got)
+	}
+}
+
+func TestYasno_DebouncePerSensor(t *testing.T) {
+	w, n, _ := newTestWatcher(t, PowerStateOn)
+
+	yasnoEvent(w, "today", "emergency_shutdowns")
+	yasnoEvent(w, "today", "schedule_applies")
+	yasnoEvent(w, "today", "emergency_shutdowns")
+
+	if n.emergency != 1 {
+		t.Errorf("repeated today changes within debounce should notify once, got %d", n.emergency)
 	}
 }
 
@@ -132,265 +514,6 @@ func TestNormalizeState(t *testing.T) {
 				t.Errorf("normalizeState(%q) = %v, want %v", tt.input, got, tt.want)
 			}
 		})
-	}
-}
-
-func TestHandleStateChange_UnknownToOn(t *testing.T) {
-	tw := createTestableWatcher()
-	ctx := context.Background()
-
-	// Initial state is unknown
-	tw.lastState = PowerStateUnknown
-
-	// Simulate state change to "on"
-	newState := &homeassistant.Entity{
-		EntityID: "binary_sensor.power",
-		State:    "on",
-	}
-
-	tw.testHandleStateChange(ctx, nil, newState)
-
-	// Should NOT send notification
-	if tw.getPowerOnCalls() != 0 {
-		t.Errorf("Expected 0 power on notifications, got %d", tw.getPowerOnCalls())
-	}
-
-	// State should be updated
-	if tw.GetCurrentState() != PowerStateOn {
-		t.Errorf("Expected state to be %v, got %v", PowerStateOn, tw.GetCurrentState())
-	}
-}
-
-func TestHandleStateChange_UnknownToOff(t *testing.T) {
-	tw := createTestableWatcher()
-	ctx := context.Background()
-
-	// Initial state is unknown
-	tw.lastState = PowerStateUnknown
-
-	// Simulate state change to "off"
-	newState := &homeassistant.Entity{
-		EntityID: "binary_sensor.power",
-		State:    "off",
-	}
-
-	tw.testHandleStateChange(ctx, nil, newState)
-
-	// Should NOT send notification
-	if tw.getPowerOffCalls() != 0 {
-		t.Errorf("Expected 0 power off notifications, got %d", tw.getPowerOffCalls())
-	}
-
-	// State should be updated
-	if tw.GetCurrentState() != PowerStateOff {
-		t.Errorf("Expected state to be %v, got %v", PowerStateOff, tw.GetCurrentState())
-	}
-}
-
-func TestHandleStateChange_OnToOff(t *testing.T) {
-	tw := createTestableWatcher()
-	ctx := context.Background()
-
-	// Set initial state to "on"
-	tw.lastState = PowerStateOn
-	tw.lastChange = time.Now().Add(-10 * time.Second)
-
-	// Simulate state change to "off"
-	newState := &homeassistant.Entity{
-		EntityID: "binary_sensor.power",
-		State:    "off",
-	}
-
-	tw.testHandleStateChange(ctx, nil, newState)
-
-	// Should send notification
-	if tw.getPowerOffCalls() != 1 {
-		t.Errorf("Expected 1 power off notification, got %d", tw.getPowerOffCalls())
-	}
-
-	// State should be updated
-	if tw.GetCurrentState() != PowerStateOff {
-		t.Errorf("Expected state to be %v, got %v", PowerStateOff, tw.GetCurrentState())
-	}
-}
-
-func TestHandleStateChange_OffToOn(t *testing.T) {
-	tw := createTestableWatcher()
-	ctx := context.Background()
-
-	// Set initial state to "off"
-	tw.lastState = PowerStateOff
-	tw.lastChange = time.Now().Add(-10 * time.Second)
-
-	// Simulate state change to "on"
-	newState := &homeassistant.Entity{
-		EntityID: "binary_sensor.power",
-		State:    "on",
-	}
-
-	tw.testHandleStateChange(ctx, nil, newState)
-
-	// Should send notification
-	if tw.getPowerOnCalls() != 1 {
-		t.Errorf("Expected 1 power on notification, got %d", tw.getPowerOnCalls())
-	}
-
-	// State should be updated
-	if tw.GetCurrentState() != PowerStateOn {
-		t.Errorf("Expected state to be %v, got %v", PowerStateOn, tw.GetCurrentState())
-	}
-}
-
-func TestHandleStateChange_NoChange(t *testing.T) {
-	tw := createTestableWatcher()
-	ctx := context.Background()
-
-	// Set initial state to "on"
-	tw.lastState = PowerStateOn
-	tw.lastChange = time.Now().Add(-10 * time.Second)
-
-	// Simulate state "change" to same state "on"
-	newState := &homeassistant.Entity{
-		EntityID: "binary_sensor.power",
-		State:    "on",
-	}
-
-	tw.testHandleStateChange(ctx, nil, newState)
-
-	// Should NOT send notification
-	if tw.getPowerOnCalls() != 0 {
-		t.Errorf("Expected 0 power on notifications, got %d", tw.getPowerOnCalls())
-	}
-
-	// State should remain unchanged
-	if tw.GetCurrentState() != PowerStateOn {
-		t.Errorf("Expected state to remain %v, got %v", PowerStateOn, tw.GetCurrentState())
-	}
-}
-
-func TestHandleStateChange_Debounce(t *testing.T) {
-	tw := createTestableWatcher()
-	ctx := context.Background()
-
-	// Set initial state to "on"
-	tw.lastState = PowerStateOn
-	tw.lastChange = time.Now() // Very recent change
-
-	// Simulate rapid state change to "off" (within debounce time)
-	newState := &homeassistant.Entity{
-		EntityID: "binary_sensor.power",
-		State:    "off",
-	}
-
-	tw.testHandleStateChange(ctx, nil, newState)
-
-	// Should NOT send notification due to debounce
-	if tw.getPowerOffCalls() != 0 {
-		t.Errorf("Expected 0 power off notifications (debounced), got %d", tw.getPowerOffCalls())
-	}
-
-	// State should remain "on" (not updated due to debounce)
-	if tw.GetCurrentState() != PowerStateOn {
-		t.Errorf("Expected state to remain %v (debounced), got %v", PowerStateOn, tw.GetCurrentState())
-	}
-}
-
-func TestHandleStateChange_OffToUnknown(t *testing.T) {
-	tw := createTestableWatcher()
-	ctx := context.Background()
-
-	// Set initial state to "off"
-	tw.lastState = PowerStateOff
-	tw.lastChange = time.Now().Add(-10 * time.Second)
-
-	// Simulate state change to "unknown"
-	newState := &homeassistant.Entity{
-		EntityID: "binary_sensor.power",
-		State:    "unknown",
-	}
-
-	tw.testHandleStateChange(ctx, nil, newState)
-
-	// Should NOT send notification (unknown state doesn't trigger notifications)
-	if tw.getPowerOnCalls() != 0 {
-		t.Errorf("Expected 0 power on notifications, got %d", tw.getPowerOnCalls())
-	}
-	if tw.getPowerOffCalls() != 0 {
-		t.Errorf("Expected 0 power off notifications, got %d", tw.getPowerOffCalls())
-	}
-
-	// State should be updated to unknown
-	if tw.GetCurrentState() != PowerStateUnknown {
-		t.Errorf("Expected state to be %v, got %v", PowerStateUnknown, tw.GetCurrentState())
-	}
-}
-
-func TestHandleStateChange_MultipleTransitions(t *testing.T) {
-	tw := createTestableWatcher()
-	ctx := context.Background()
-
-	// Start from unknown
-	tw.lastState = PowerStateUnknown
-
-	// 1. unknown -> on (should NOT notify)
-	tw.testHandleStateChange(ctx, nil, &homeassistant.Entity{State: "on"})
-
-	if tw.getPowerOnCalls() != 0 {
-		t.Errorf("Step 1: Expected 0 notifications, got %d", tw.getPowerOnCalls())
-	}
-	if tw.GetCurrentState() != PowerStateOn {
-		t.Errorf("Step 1: Expected state %v, got %v", PowerStateOn, tw.GetCurrentState())
-	}
-
-	// Wait for debounce
-	tw.lastChange = time.Now().Add(-10 * time.Second)
-
-	// 2. on -> off (should notify)
-	tw.testHandleStateChange(ctx, nil, &homeassistant.Entity{State: "off"})
-
-	if tw.getPowerOffCalls() != 1 {
-		t.Errorf("Step 2: Expected 1 power off notification, got %d", tw.getPowerOffCalls())
-	}
-	if tw.GetCurrentState() != PowerStateOff {
-		t.Errorf("Step 2: Expected state %v, got %v", PowerStateOff, tw.GetCurrentState())
-	}
-
-	// Wait for debounce
-	tw.lastChange = time.Now().Add(-10 * time.Second)
-
-	// 3. off -> on (should notify)
-	tw.testHandleStateChange(ctx, nil, &homeassistant.Entity{State: "on"})
-
-	if tw.getPowerOnCalls() != 1 {
-		t.Errorf("Step 3: Expected 1 power on notification, got %d", tw.getPowerOnCalls())
-	}
-	if tw.GetCurrentState() != PowerStateOn {
-		t.Errorf("Step 3: Expected state %v, got %v", PowerStateOn, tw.GetCurrentState())
-	}
-
-	// Wait for debounce
-	tw.lastChange = time.Now().Add(-10 * time.Second)
-
-	// 4. on -> unknown (should NOT notify)
-	tw.testHandleStateChange(ctx, nil, &homeassistant.Entity{State: "unknown"})
-
-	// Counts should remain the same
-	if tw.getPowerOnCalls() != 1 {
-		t.Errorf("Step 4: Expected 1 power on notification total, got %d", tw.getPowerOnCalls())
-	}
-	if tw.getPowerOffCalls() != 1 {
-		t.Errorf("Step 4: Expected 1 power off notification total, got %d", tw.getPowerOffCalls())
-	}
-
-	// Wait for debounce
-	tw.lastChange = time.Now().Add(-10 * time.Second)
-
-	// 5. unknown -> off (should NOT notify - from unknown)
-	tw.testHandleStateChange(ctx, nil, &homeassistant.Entity{State: "off"})
-
-	// Counts should remain the same
-	if tw.getPowerOffCalls() != 1 {
-		t.Errorf("Step 5: Expected 1 power off notification total (no new), got %d", tw.getPowerOffCalls())
 	}
 }
 
@@ -460,157 +583,5 @@ func TestFormatTimePtr(t *testing.T) {
 				t.Errorf("formatTimePtr() = %v, want %v", got, tt.want)
 			}
 		})
-	}
-}
-
-func TestGetCurrentState(t *testing.T) {
-	tw := createTestableWatcher()
-
-	// Test initial state
-	if tw.GetCurrentState() != PowerStateUnknown {
-		t.Errorf("Initial state should be %v, got %v", PowerStateUnknown, tw.GetCurrentState())
-	}
-
-	// Update state
-	tw.mu.Lock()
-	tw.lastState = PowerStateOn
-	tw.mu.Unlock()
-
-	if tw.GetCurrentState() != PowerStateOn {
-		t.Errorf("State should be %v, got %v", PowerStateOn, tw.GetCurrentState())
-	}
-}
-
-// TestHandleStateChange_WebSocketReconnect simulates the bug scenario where
-// WebSocket disconnects and HA reports off->unknown->off, which should NOT
-// reset the duration tracking
-func TestHandleStateChange_WebSocketReconnect(t *testing.T) {
-	tw := createTestableWatcher()
-	ctx := context.Background()
-
-	// Step 1: unknown -> off (initial state detection, should skip)
-	tw.lastState = PowerStateUnknown
-	tw.testHandleStateChange(ctx, nil, &homeassistant.Entity{State: "off"})
-
-	if tw.getPowerOffCalls() != 0 {
-		t.Errorf("Step 1 (unknown->off): Expected 0 notifications, got %d", tw.getPowerOffCalls())
-	}
-
-	// Wait for debounce
-	tw.lastChange = time.Now().Add(-10 * time.Second)
-
-	// Step 2: off -> on (power restored, should notify)
-	tw.testHandleStateChange(ctx, nil, &homeassistant.Entity{State: "on"})
-
-	if tw.getPowerOnCalls() != 1 {
-		t.Errorf("Step 2 (off->on): Expected 1 notification, got %d", tw.getPowerOnCalls())
-	}
-
-	// Wait for debounce
-	tw.lastChange = time.Now().Add(-10 * time.Second)
-
-	// Step 3: on -> off (power out again, should notify)
-	tw.testHandleStateChange(ctx, nil, &homeassistant.Entity{State: "off"})
-
-	if tw.getPowerOffCalls() != 1 {
-		t.Errorf("Step 3 (on->off): Expected 1 notification, got %d", tw.getPowerOffCalls())
-	}
-
-	// Wait for debounce
-	tw.lastChange = time.Now().Add(-10 * time.Second)
-
-	// Step 4: off -> unknown (WebSocket disconnect, should NOT notify or record)
-	tw.testHandleStateChange(ctx, nil, &homeassistant.Entity{State: "unknown"})
-
-	if tw.getPowerOffCalls() != 1 {
-		t.Errorf("Step 4 (off->unknown): Expected still 1 notification total, got %d", tw.getPowerOffCalls())
-	}
-	if tw.getPowerOnCalls() != 1 {
-		t.Errorf("Step 4 (off->unknown): Expected still 1 on notification total, got %d", tw.getPowerOnCalls())
-	}
-
-	// State should be updated to unknown
-	if tw.GetCurrentState() != PowerStateUnknown {
-		t.Errorf("Step 4: Expected state %v, got %v", PowerStateUnknown, tw.GetCurrentState())
-	}
-
-	// Wait for debounce
-	tw.lastChange = time.Now().Add(-10 * time.Second)
-
-	// Step 5: unknown -> off (WebSocket reconnect, should NOT notify or record - this is the key test)
-	tw.testHandleStateChange(ctx, nil, &homeassistant.Entity{State: "off"})
-
-	if tw.getPowerOffCalls() != 1 {
-		t.Errorf("Step 5 (unknown->off): Expected still 1 notification total (NOT 2), got %d", tw.getPowerOffCalls())
-	}
-	if tw.GetCurrentState() != PowerStateOff {
-		t.Errorf("Step 5: Expected state %v, got %v", PowerStateOff, tw.GetCurrentState())
-	}
-
-	// Wait for debounce
-	tw.lastChange = time.Now().Add(-10 * time.Second)
-
-	// Step 6: off -> on (power restored after reconnect, should notify)
-	// This is where the bug would show: duration should be from step 3, not step 5
-	tw.testHandleStateChange(ctx, nil, &homeassistant.Entity{State: "on"})
-
-	if tw.getPowerOnCalls() != 2 {
-		t.Errorf("Step 6 (off->on): Expected 2 on notifications total, got %d", tw.getPowerOnCalls())
-	}
-}
-
-func TestHandleScheduleChange_NilScheduleIgnored(t *testing.T) {
-	tw := createTestableWatcher()
-
-	// Set initial schedule time (30 minutes ago, simulating 18:30 when now is ~19:00)
-	scheduledTime := time.Now().Add(-30 * time.Minute)
-	tw.mu.Lock()
-	tw.lastNextOffTime = &scheduledTime
-	tw.lastState = PowerStateOn
-	tw.lastScheduleChange = time.Now().Add(-10 * time.Second) // Past debounce
-	tw.mu.Unlock()
-
-	// Simulate schedule cancellation (becomes nil) at current time
-	// This should NOT update lastNextOffTime in real code
-	// Since we can't easily test handleScheduleChange without a full notifSvc mock,
-	// we verify that the stored time remains unchanged
-
-	// Verify lastNextOffTime is still the original scheduled time
-	tw.mu.Lock()
-	storedTime := tw.lastNextOffTime
-	tw.mu.Unlock()
-
-	if storedTime == nil {
-		t.Fatal("lastNextOffTime should not be nil")
-	}
-	if !storedTime.Equal(scheduledTime) {
-		t.Errorf("lastNextOffTime should still be %v, got %v", scheduledTime, storedTime)
-	}
-
-	// The suppression logic verifies that less than 60 minutes passed since scheduled time
-	timeSinceOldSchedule := time.Since(scheduledTime)
-	if timeSinceOldSchedule < 0 || timeSinceOldSchedule >= 60*time.Minute {
-		t.Errorf("Test setup issue: expected 0 < timeSince < 60min, got %.0f minutes", timeSinceOldSchedule.Minutes())
-	}
-
-	// Verify suppression condition would trigger
-	if timeSinceOldSchedule > -time.Minute && timeSinceOldSchedule < 60*time.Minute {
-		t.Logf("✓ Suppression logic would work: old time was %.0f minutes ago", timeSinceOldSchedule.Minutes())
-	} else {
-		t.Error("Suppression logic should apply: less than 60 minutes since scheduled time")
-	}
-
-	// Update to new schedule time (this SHOULD update lastNextOffTime)
-	nextScheduledTime := time.Now().Add(10 * time.Hour) // Next morning
-	tw.mu.Lock()
-	tw.lastNextOffTime = &nextScheduledTime
-	tw.mu.Unlock()
-
-	tw.mu.Lock()
-	updatedTime := tw.lastNextOffTime
-	tw.mu.Unlock()
-
-	if !updatedTime.Equal(nextScheduledTime) {
-		t.Errorf("lastNextOffTime should be updated to %v, got %v", nextScheduledTime, updatedTime)
 	}
 }

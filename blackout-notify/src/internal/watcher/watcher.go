@@ -9,7 +9,6 @@ import (
 	"github.com/pahanium/ha-blackout-notify/internal/homeassistant"
 	"github.com/pahanium/ha-blackout-notify/internal/logger"
 	"github.com/pahanium/ha-blackout-notify/internal/notifications"
-	"github.com/pahanium/ha-blackout-notify/internal/stats"
 )
 
 // PowerState represents power status
@@ -21,45 +20,83 @@ const (
 	PowerStateUnknown PowerState = "unknown"
 )
 
+// EventSource delivers Home Assistant state change events (implemented by homeassistant.WSClient)
+type EventSource interface {
+	OnStateChange(entityID string, handler homeassistant.StateChangeHandler)
+	RunWithReconnect(ctx context.Context) error
+	Stop()
+}
+
+// StateGetter reads current entity state (implemented by homeassistant.Client)
+type StateGetter interface {
+	GetState(ctx context.Context, entityID string) (*homeassistant.Entity, error)
+}
+
+// Notifier sends notifications and reads schedule data (implemented by notifications.Service)
+type Notifier interface {
+	NotifyPowerOn(ctx context.Context, previousOffDurationSec int64) error
+	NotifyPowerOff(ctx context.Context, previousOnDurationSec int64) error
+	NotifyScheduleChanged(ctx context.Context, scheduleType string, oldTime, newTime *time.Time) error
+	NotifyYasnoScheduleTomorrow(ctx context.Context, events []homeassistant.CalendarEvent, groupName string) error
+	NotifyYasnoEmergencyShutdown(ctx context.Context) error
+	GetScheduledTime(ctx context.Context, sensorID string) (*time.Time, error)
+	GetYasnoCalendarEvents(ctx context.Context, calendarID string, date time.Time) ([]homeassistant.CalendarEvent, error)
+	GetLocation() *time.Location
+}
+
+// StateRecorder persists power state changes (implemented by stats.Recorder)
+type StateRecorder interface {
+	RecordStateChange(ctx context.Context, state string, changedAt time.Time) (previousState string, previousDuration int64, err error)
+}
+
 // Watcher monitors entity state changes and triggers notifications
 type Watcher struct {
-	config             *config.Config
-	wsClient           *homeassistant.WSClient
-	haClient           *homeassistant.Client
-	notifSvc           *notifications.Service
-	statsRecorder      *stats.Recorder
-	lastState          PowerState
-	lastNextOnTime     *time.Time
-	lastNextOffTime    *time.Time
-	mu                 sync.Mutex
-	debounceTime       time.Duration
-	lastChange         time.Time
-	lastScheduleChange time.Time
+	config        *config.Config
+	wsClient      EventSource
+	haClient      StateGetter
+	notifSvc      Notifier
+	statsRecorder StateRecorder
 
-	// Yasno schedule monitoring
-	lastYasnoTodayState    string
-	lastYasnoTomorrowState string
-	yasnoDebounceTime      time.Duration
-	lastYasnoNotification  time.Time
+	mu              sync.Mutex
+	lastState       PowerState
+	lastNextOnTime  *time.Time
+	lastNextOffTime *time.Time
+
+	// Power state debounce: a new state is applied only after it stays unchanged for debounceTime
+	debounceTime  time.Duration
+	pendingState  PowerState
+	pendingSince  time.Time
+	debounceTimer *time.Timer
+
+	// Schedule sensor debounce, tracked per schedule type ("on"/"off")
+	lastScheduleChange map[string]time.Time
+
+	// Yasno schedule monitoring, debounced per sensor
+	lastYasnoTodayState     string
+	lastYasnoTomorrowState  string
+	yasnoDebounceTime       time.Duration
+	lastYasnoTodayChange    time.Time
+	lastYasnoTomorrowChange time.Time
 }
 
 // NewWatcher creates a new state watcher
 func NewWatcher(
 	cfg *config.Config,
-	wsClient *homeassistant.WSClient,
-	haClient *homeassistant.Client,
-	notifSvc *notifications.Service,
-	statsRecorder *stats.Recorder,
+	wsClient EventSource,
+	haClient StateGetter,
+	notifSvc Notifier,
+	statsRecorder StateRecorder,
 ) *Watcher {
 	return &Watcher{
-		config:            cfg,
-		wsClient:          wsClient,
-		haClient:          haClient,
-		notifSvc:          notifSvc,
-		statsRecorder:     statsRecorder,
-		lastState:         PowerStateUnknown,
-		debounceTime:      5 * time.Second,  // Debounce to avoid rapid state changes
-		yasnoDebounceTime: 30 * time.Second, // Longer debounce for Yasno to avoid spam
+		config:             cfg,
+		wsClient:           wsClient,
+		haClient:           haClient,
+		notifSvc:           notifSvc,
+		statsRecorder:      statsRecorder,
+		lastState:          PowerStateUnknown,
+		debounceTime:       5 * time.Second, // State must be stable this long before it is applied
+		lastScheduleChange: make(map[string]time.Time),
+		yasnoDebounceTime:  30 * time.Second, // Longer debounce for Yasno to avoid spam
 	}
 }
 
@@ -119,7 +156,9 @@ func (w *Watcher) fetchInitialState(ctx context.Context) error {
 	return nil
 }
 
-// handleStateChange processes state change events
+// handleStateChange debounces power state events: the latest known state is applied
+// only after it stays unchanged for debounceTime, so short flickers are ignored
+// and the final state of a burst is never lost
 func (w *Watcher) handleStateChange(ctx context.Context, oldState, newState *homeassistant.Entity) {
 	if newState == nil {
 		return
@@ -127,48 +166,77 @@ func (w *Watcher) handleStateChange(ctx context.Context, oldState, newState *hom
 
 	newPowerState := normalizeState(newState.State)
 
-	w.mu.Lock()
-	previousState := w.lastState
-	timeSinceLastChange := time.Since(w.lastChange)
-	w.mu.Unlock()
-
-	// Skip if state hasn't actually changed
-	if newPowerState == previousState {
+	// unknown/unavailable comes from HA restarts and WebSocket reconnects, not from the grid.
+	// Ignoring it keeps the last real state, so off -> unknown -> off doesn't reset durations
+	// and on -> unknown -> off is still reported as an outage.
+	if newPowerState == PowerStateUnknown {
+		logger.Debug("Ignoring %s state of watched entity", newState.State)
 		return
 	}
 
-	// Debounce rapid changes
-	if timeSinceLastChange < w.debounceTime {
-		logger.Debug("Debouncing state change, ignoring %s -> %s", previousState, newPowerState)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if newPowerState == w.pendingState && w.debounceTimer != nil {
+		return
+	}
+
+	if w.debounceTimer != nil {
+		w.debounceTimer.Stop()
+		w.debounceTimer = nil
+	}
+
+	if newPowerState == w.lastState {
+		// Flicker returned to the applied state before debounce expired
+		w.pendingState = ""
+		return
+	}
+
+	w.pendingState = newPowerState
+	w.pendingSince = time.Now()
+	logger.Debug("Power state %s pending for %s", newPowerState, w.debounceTime)
+
+	state, since := w.pendingState, w.pendingSince
+	w.debounceTimer = time.AfterFunc(w.debounceTime, func() {
+		w.mu.Lock()
+		if w.pendingState != state || !w.pendingSince.Equal(since) {
+			w.mu.Unlock()
+			return
+		}
+		w.pendingState = ""
+		w.debounceTimer = nil
+		w.mu.Unlock()
+
+		if ctx.Err() != nil {
+			return
+		}
+		w.applyStateChange(ctx, state, since)
+	})
+}
+
+// applyStateChange records a stable power state change and sends a notification
+func (w *Watcher) applyStateChange(ctx context.Context, newPowerState PowerState, changedAt time.Time) {
+	w.mu.Lock()
+	previousState := w.lastState
+	if newPowerState == previousState {
+		w.mu.Unlock()
+		return
+	}
+	w.lastState = newPowerState
+	w.mu.Unlock()
+
+	// First real state after startup: just remember it
+	if previousState == PowerStateUnknown {
+		logger.Info("Initial power state detected: %s, skipping recording and notification", newPowerState)
 		return
 	}
 
 	logger.Info("Power state changed: %s -> %s", previousState, newPowerState)
 
-	// Update state
-	w.mu.Lock()
-	w.lastState = newPowerState
-	changeTime := time.Now()
-	w.lastChange = changeTime
-	w.mu.Unlock()
-
-	// Skip recording and notification if transitioning from unknown state
-	if previousState == PowerStateUnknown {
-		logger.Info("State transition from unknown to %s, skipping recording and notification (initial state detection)", newPowerState)
-		return
-	}
-
-	// Skip recording and notification if transitioning to unknown state
-	if newPowerState == PowerStateUnknown {
-		logger.Info("State transition from %s to unknown, skipping recording and notification (connection issue)", previousState)
-		return
-	}
-
 	// Record state change in statistics and get previous state duration
 	var previousStateDuration int64 = 0
 	if w.statsRecorder != nil {
-		// Record new state and get previous state info
-		prevState, duration, err := w.statsRecorder.RecordStateChange(ctx, string(newPowerState), changeTime)
+		prevState, duration, err := w.statsRecorder.RecordStateChange(ctx, string(newPowerState), changedAt)
 		if err != nil {
 			logger.Error("Failed to record state change in statistics: %v", err)
 		} else if prevState == string(previousState) && duration > 0 {
@@ -177,7 +245,6 @@ func (w *Watcher) handleStateChange(ctx context.Context, oldState, newState *hom
 		}
 	}
 
-	// Send notification based on new state with duration
 	switch newPowerState {
 	case PowerStateOn:
 		if err := w.notifSvc.NotifyPowerOn(ctx, previousStateDuration); err != nil {
@@ -197,13 +264,15 @@ func (w *Watcher) GetCurrentState() PowerState {
 	return w.lastState
 }
 
-// GetStatsRecorder returns the statistics recorder (can be nil if disabled)
-func (w *Watcher) GetStatsRecorder() *stats.Recorder {
-	return w.statsRecorder
-}
-
 // Stop stops the watcher
 func (w *Watcher) Stop() {
+	w.mu.Lock()
+	if w.debounceTimer != nil {
+		w.debounceTimer.Stop()
+		w.debounceTimer = nil
+	}
+	w.mu.Unlock()
+
 	if w.wsClient != nil {
 		w.wsClient.Stop()
 	}
@@ -249,10 +318,10 @@ func (w *Watcher) handleScheduleChange(ctx context.Context, scheduleType string,
 	// Get current power state to decide if we should notify
 	w.mu.Lock()
 	currentPowerState := w.lastState
-	timeSinceLastScheduleChange := time.Since(w.lastScheduleChange)
+	timeSinceLastScheduleChange := time.Since(w.lastScheduleChange[scheduleType])
 	w.mu.Unlock()
 
-	// Debounce schedule changes (avoid spam on reconnect)
+	// Debounce schedule changes per type (avoid spam on reconnect)
 	if timeSinceLastScheduleChange < w.debounceTime {
 		logger.Debug("Debouncing schedule change")
 		return
@@ -304,7 +373,7 @@ func (w *Watcher) handleScheduleChange(ctx context.Context, scheduleType string,
 	} else {
 		w.lastNextOffTime = newTime
 	}
-	w.lastScheduleChange = time.Now()
+	w.lastScheduleChange[scheduleType] = time.Now()
 	w.mu.Unlock()
 
 	// Only notify about relevant schedule changes based on current power state
@@ -331,20 +400,17 @@ func (w *Watcher) handleScheduleChange(ctx context.Context, scheduleType string,
 	// Suppress notification if new scheduled time is for a different day (not today)
 	// This prevents spam when evening schedule updates reflect tomorrow's schedule
 	if shouldNotify && newTime != nil {
+		loc := w.notifSvc.GetLocation()
+		if loc == nil {
+			loc = time.Local
+		}
 		now := time.Now()
-		// Get timezone from notification service for correct date comparison
-		if loc := w.notifSvc.GetLocation(); loc != nil {
-			now = now.In(loc)
-			newTimeDate := newTime.In(loc).Truncate(24 * time.Hour)
-			todayDate := now.Truncate(24 * time.Hour)
-
-			if !newTimeDate.Equal(todayDate) {
-				logger.Debug("Suppressing schedule notification: new time %s is for %s (not today %s)",
-					formatTimePtr(newTime),
-					newTime.In(loc).Format("2006-01-02"),
-					now.Format("2006-01-02"))
-				shouldNotify = false
-			}
+		if !sameDay(*newTime, now, loc) {
+			logger.Debug("Suppressing schedule notification: new time %s is for %s (not today %s)",
+				formatTimePtr(newTime),
+				newTime.In(loc).Format("2006-01-02"),
+				now.In(loc).Format("2006-01-02"))
+			shouldNotify = false
 		}
 	}
 
@@ -365,6 +431,13 @@ func timesEqual(a, b *time.Time) bool {
 	}
 	// Compare with 1 minute tolerance to avoid noise
 	return a.Truncate(time.Minute).Equal(b.Truncate(time.Minute))
+}
+
+// sameDay reports whether a and b fall on the same calendar day in loc
+func sameDay(a, b time.Time, loc *time.Location) bool {
+	ay, am, ad := a.In(loc).Date()
+	by, bm, bd := b.In(loc).Date()
+	return ay == by && am == bm && ad == bd
 }
 
 // formatTimePtr formats time pointer for logging
@@ -427,7 +500,7 @@ func (w *Watcher) handleYasnoTodayChange(ctx context.Context, oldState, newState
 
 	w.mu.Lock()
 	previousState := w.lastYasnoTodayState
-	timeSinceLastNotif := time.Since(w.lastYasnoNotification)
+	timeSinceLastNotif := time.Since(w.lastYasnoTodayChange)
 	w.mu.Unlock()
 
 	// Skip if state hasn't changed
@@ -446,7 +519,7 @@ func (w *Watcher) handleYasnoTodayChange(ctx context.Context, oldState, newState
 	// Update stored state
 	w.mu.Lock()
 	w.lastYasnoTodayState = scheduleState
-	w.lastYasnoNotification = time.Now()
+	w.lastYasnoTodayChange = time.Now()
 	w.mu.Unlock()
 
 	// Handle different state transitions
@@ -492,7 +565,7 @@ func (w *Watcher) handleYasnoTomorrowChange(ctx context.Context, oldState, newSt
 
 	w.mu.Lock()
 	previousState := w.lastYasnoTomorrowState
-	timeSinceLastNotif := time.Since(w.lastYasnoNotification)
+	timeSinceLastNotif := time.Since(w.lastYasnoTomorrowChange)
 	w.mu.Unlock()
 
 	// Skip if state hasn't changed
@@ -511,7 +584,7 @@ func (w *Watcher) handleYasnoTomorrowChange(ctx context.Context, oldState, newSt
 	// Update stored state
 	w.mu.Lock()
 	w.lastYasnoTomorrowState = scheduleState
-	w.lastYasnoNotification = time.Now()
+	w.lastYasnoTomorrowChange = time.Now()
 	w.mu.Unlock()
 
 	// Handle different state transitions
@@ -519,8 +592,12 @@ func (w *Watcher) handleYasnoTomorrowChange(ctx context.Context, oldState, newSt
 	case "schedule_applies":
 		logger.Info("Yasno: Tomorrow schedule available")
 
-		// Get calendar events for tomorrow
-		tomorrow := time.Now().Add(24 * time.Hour)
+		// Get calendar events for tomorrow in the configured timezone
+		loc := w.notifSvc.GetLocation()
+		if loc == nil {
+			loc = time.Local
+		}
+		tomorrow := time.Now().In(loc).AddDate(0, 0, 1)
 		events, err := w.notifSvc.GetYasnoCalendarEvents(ctx, w.config.YasnoCalendarID, tomorrow)
 		if err != nil {
 			logger.Error("Failed to get Yasno calendar events: %v", err)

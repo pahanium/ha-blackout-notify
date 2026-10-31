@@ -44,9 +44,11 @@ internal/logger/         → leveled logger (Debug/Info/Warn/Error/Fatal)
   - Watcher, WebSocket client and stats DB only if `watched_entity_id` is set (`IsPowerMonitoringEnabled`).
   - The bot receives optional deps via setters (`SetStatsProvider`, `SetNotificationService`), so they can be nil in handlers.
 - **Event flow**: `watcher.Start` registers per-entity handlers on `WSClient.OnStateChange`, then blocks in `RunWithReconnect`.
-  - Power entity: normalized to `on`/`off`/`unknown`, 5s debounce. Each change is recorded via `stats.Recorder.RecordStateChange` (returns previous state duration) and then notified. Transitions to or from `unknown` (startup, WebSocket reconnect) are neither recorded nor notified, so reconnects don't break outage durations.
-  - Next on/off sensors: "schedule changed" notifications.
-  - Yasno today/tomorrow status sensors (30s debounce): emergency-shutdown alert; tomorrow's schedule fetched from the HA calendar via `calendar.get_events?return_response=true`.
+  - Power entity: normalized to `on`/`off`/`unknown`. A new state is applied only after it stays unchanged for 5s (`handleStateChange` → timer → `applyStateChange`), so flickers are ignored and the last state of a burst is never lost; the change time is when the event arrived. `unknown`/`unavailable` events are ignored (last real state kept), so reconnects neither reset durations nor hide outages. The first real state after startup is stored silently. Each applied change is recorded via `RecordStateChange` (returns previous state duration) and then notified.
+  - Next on/off sensors: "schedule changed" notifications, debounced per type; suppressed if the new time is on another calendar day (in the configured timezone) or the old time passed <60 min ago.
+  - Yasno today/tomorrow status sensors (30s debounce per sensor): emergency-shutdown alert; tomorrow's schedule fetched from the HA calendar via `calendar.get_events?return_response=true`.
+- **Interfaces for testing**: `watcher` depends on `EventSource`, `StateGetter`, `Notifier`, `StateRecorder`; `notifications` on `Sender` (Telegram) and `HAReader`. Tests use fakes for them (see `watcher_test.go`, `notify_test.go`); don't test copies of production logic.
+- **Dates**: compare calendar days with `Date()` in the configured `*time.Location`, never `Truncate(24 * time.Hour)` (that splits at UTC midnight).
 - **Notifications**: the pause `input_boolean` (`pause_entity_id`) suppresses every notification type. Tomorrow's schedule is sent silently during quiet hours (23:00–06:00, configured timezone).
 - **Stats DB**: `modernc.org/sqlite` (pure Go, keeps `CGO_ENABLED=0`); `/data/power_stats.db` in the add-on, persists across updates.
 
