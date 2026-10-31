@@ -481,6 +481,84 @@ func TestGetCurrentState(t *testing.T) {
 	}
 }
 
+// TestHandleStateChange_WebSocketReconnect simulates the bug scenario where
+// WebSocket disconnects and HA reports off->unknown->off, which should NOT
+// reset the duration tracking
+func TestHandleStateChange_WebSocketReconnect(t *testing.T) {
+	tw := createTestableWatcher()
+	ctx := context.Background()
+
+	// Step 1: unknown -> off (initial state detection, should skip)
+	tw.lastState = PowerStateUnknown
+	tw.testHandleStateChange(ctx, nil, &homeassistant.Entity{State: "off"})
+
+	if tw.getPowerOffCalls() != 0 {
+		t.Errorf("Step 1 (unknown->off): Expected 0 notifications, got %d", tw.getPowerOffCalls())
+	}
+
+	// Wait for debounce
+	tw.lastChange = time.Now().Add(-10 * time.Second)
+
+	// Step 2: off -> on (power restored, should notify)
+	tw.testHandleStateChange(ctx, nil, &homeassistant.Entity{State: "on"})
+
+	if tw.getPowerOnCalls() != 1 {
+		t.Errorf("Step 2 (off->on): Expected 1 notification, got %d", tw.getPowerOnCalls())
+	}
+
+	// Wait for debounce
+	tw.lastChange = time.Now().Add(-10 * time.Second)
+
+	// Step 3: on -> off (power out again, should notify)
+	tw.testHandleStateChange(ctx, nil, &homeassistant.Entity{State: "off"})
+
+	if tw.getPowerOffCalls() != 1 {
+		t.Errorf("Step 3 (on->off): Expected 1 notification, got %d", tw.getPowerOffCalls())
+	}
+
+	// Wait for debounce
+	tw.lastChange = time.Now().Add(-10 * time.Second)
+
+	// Step 4: off -> unknown (WebSocket disconnect, should NOT notify or record)
+	tw.testHandleStateChange(ctx, nil, &homeassistant.Entity{State: "unknown"})
+
+	if tw.getPowerOffCalls() != 1 {
+		t.Errorf("Step 4 (off->unknown): Expected still 1 notification total, got %d", tw.getPowerOffCalls())
+	}
+	if tw.getPowerOnCalls() != 1 {
+		t.Errorf("Step 4 (off->unknown): Expected still 1 on notification total, got %d", tw.getPowerOnCalls())
+	}
+
+	// State should be updated to unknown
+	if tw.GetCurrentState() != PowerStateUnknown {
+		t.Errorf("Step 4: Expected state %v, got %v", PowerStateUnknown, tw.GetCurrentState())
+	}
+
+	// Wait for debounce
+	tw.lastChange = time.Now().Add(-10 * time.Second)
+
+	// Step 5: unknown -> off (WebSocket reconnect, should NOT notify or record - this is the key test)
+	tw.testHandleStateChange(ctx, nil, &homeassistant.Entity{State: "off"})
+
+	if tw.getPowerOffCalls() != 1 {
+		t.Errorf("Step 5 (unknown->off): Expected still 1 notification total (NOT 2), got %d", tw.getPowerOffCalls())
+	}
+	if tw.GetCurrentState() != PowerStateOff {
+		t.Errorf("Step 5: Expected state %v, got %v", PowerStateOff, tw.GetCurrentState())
+	}
+
+	// Wait for debounce
+	tw.lastChange = time.Now().Add(-10 * time.Second)
+
+	// Step 6: off -> on (power restored after reconnect, should notify)
+	// This is where the bug would show: duration should be from step 3, not step 5
+	tw.testHandleStateChange(ctx, nil, &homeassistant.Entity{State: "on"})
+
+	if tw.getPowerOnCalls() != 2 {
+		t.Errorf("Step 6 (off->on): Expected 2 on notifications total, got %d", tw.getPowerOnCalls())
+	}
+}
+
 func TestHandleScheduleChange_NilScheduleIgnored(t *testing.T) {
 	tw := createTestableWatcher()
 

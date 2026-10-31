@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.3] - 2026-10-31
+
+### Fixed
+Fixes from the stable branch (released there as 0.4.6 and 0.4.7) that were missing in beta:
+- 🐛 **Incorrect outage duration after WebSocket reconnect**: Transitions to/from `unknown` (off → unknown → off) are no longer recorded in statistics, so a reconnect during an outage no longer resets the duration
+- 🐛 **Schedule change notifications for another day**: "Schedule updated" is no longer sent when the next on/off time moves to a different day
+
 ## [0.5.2] - 2026-10-31
 
 ### Security
