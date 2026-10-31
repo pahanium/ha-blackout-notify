@@ -5,11 +5,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yourusername/haaddon/telegram-bot/internal/config"
-	"github.com/yourusername/haaddon/telegram-bot/internal/homeassistant"
-	"github.com/yourusername/haaddon/telegram-bot/internal/logger"
-	"github.com/yourusername/haaddon/telegram-bot/internal/notifications"
-	"github.com/yourusername/haaddon/telegram-bot/internal/stats"
+	"github.com/pahanium/ha-blackout-notify/internal/config"
+	"github.com/pahanium/ha-blackout-notify/internal/homeassistant"
+	"github.com/pahanium/ha-blackout-notify/internal/logger"
+	"github.com/pahanium/ha-blackout-notify/internal/notifications"
+	"github.com/pahanium/ha-blackout-notify/internal/stats"
 )
 
 // PowerState represents power status

@@ -10,13 +10,11 @@ func TestLoad(t *testing.T) {
 	os.Setenv("TELEGRAM_TOKEN", "test_token")
 	os.Setenv("HA_TOKEN", "ha_test_token")
 	os.Setenv("LOG_LEVEL", "debug")
-	os.Setenv("POLLING_INTERVAL", "60")
 	os.Setenv("ALLOWED_CHAT_IDS", "123,456,789")
 	defer func() {
 		os.Unsetenv("TELEGRAM_TOKEN")
 		os.Unsetenv("HA_TOKEN")
 		os.Unsetenv("LOG_LEVEL")
-		os.Unsetenv("POLLING_INTERVAL")
 		os.Unsetenv("ALLOWED_CHAT_IDS")
 	}()
 
@@ -35,10 +33,6 @@ func TestLoad(t *testing.T) {
 
 	if cfg.LogLevel != "debug" {
 		t.Errorf("LogLevel = %v, want debug", cfg.LogLevel)
-	}
-
-	if cfg.PollingInterval != 60 {
-		t.Errorf("PollingInterval = %v, want 60", cfg.PollingInterval)
 	}
 
 	if len(cfg.AllowedChatIDs) != 3 {

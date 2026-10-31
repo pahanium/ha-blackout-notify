@@ -4,24 +4,25 @@ Home Assistant add-on in **Go 1.26** that watches power state through the HA Web
 
 ## Commands
 
-All Go commands run from `blackout-notify/src/`:
+Use the `Makefile` from the repo root (`make help` lists targets):
 
 ```bash
-go test ./...                                          # all tests
-go test -v -run TestNormalizeState ./internal/watcher  # single test
-go test -v -race -coverprofile=coverage.txt ./...      # what CI runs
-go fmt ./... && go vet ./...                           # required before commits
-go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0 run ./...  # same linter as CI (config: .golangci.yml)
-CGO_ENABLED=0 go build -ldflags="-w -s" -o ../bin/blackout-notify ./cmd/bot
+make test        # go test -race ./...
+make lint        # gofmt check, go vet, golangci-lint v2 (same version/config as CI: src/.golangci.yml)
+make check       # test + lint + govulncheck
+make run         # go run ./cmd/bot with .env
+make dev-up      # run in Docker via docker-compose.dev.yaml (Dockerfile.dev, no s6/bashio)
+make docker ARCH=aarch64   # production add-on image via scripts/docker-build.sh (base image from build.yaml)
 ```
 
-From repo root: `./scripts/build.sh` (tidy + test + build), `./scripts/docker-build.sh amd64|aarch64|armv7`.
+Single test (from `blackout-notify/src/`): `go test -v -run TestNormalizeState ./internal/watcher`.
 
-### Running locally
+### Local development and testing
 
-- `main.go` loads `../../.env` relative to the **current directory**, so run the binary from `src/` (`../bin/blackout-notify`) with `.env` in the repo root (template: `.env.example`).
-- Local `.env` must use `HA_API_URL=http://<ha-ip>:8123/api` (not the supervisor URL) and `STATS_DB_PATH=./power_stats.db`.
-- Alternative: `docker compose -f docker-compose.dev.yaml up --build` (uses `Dockerfile.dev`, no s6/bashio).
+- `.env` lives in the repo root (template `.env.example`); `main.go` loads the nearest `.env` from the current directory upwards and never overrides already-set env vars.
+- `.env` uses a **separate dev/beta Telegram bot and channel**, not production. Two instances polling the same bot token get `409 Conflict`. Running locally while the beta add-on is up therefore needs its own token too.
+- Local runs talk to the **live Home Assistant** (`HA_API_URL=http://<ha-ip>:8123/api`, long-lived token). This is intended: the bot only reads states, subscribes to events and calls `calendar.get_events`; it has no commands that change HA. Keep it read-only.
+- `STATS_DB_PATH=./power_stats.db` for `make run`; `make dev-up` stores it in `.data/` (git-ignored).
 
 ## Architecture
 
@@ -32,7 +33,7 @@ internal/homeassistant/  → REST client, calendar.get_events, WebSocket client 
 internal/watcher/        → reacts to HA state changes (power + schedule + Yasno sensors)
 internal/notifications/  → message formatting and sending; all Ukrainian strings in messages.go
 internal/stats/          → SQLite power_events table, /stats queries
-internal/bot/            → Telegram command handlers
+internal/bot/            → Telegram command handlers (read-only: /status, /stats, /calendar, /chatid)
 internal/logger/         → leveled logger (Debug/Info/Warn/Error/Fatal)
 ```
 
@@ -43,7 +44,7 @@ internal/logger/         → leveled logger (Debug/Info/Warn/Error/Fatal)
   - Watcher, WebSocket client and stats DB only if `watched_entity_id` is set (`IsPowerMonitoringEnabled`).
   - The bot receives optional deps via setters (`SetStatsProvider`, `SetNotificationService`), so they can be nil in handlers.
 - **Event flow**: `watcher.Start` registers per-entity handlers on `WSClient.OnStateChange`, then blocks in `RunWithReconnect`.
-  - Power entity: normalized to `on`/`off`/`unknown`, 5s debounce. Each change is recorded via `stats.Recorder.RecordStateChange` (returns previous state duration) and then notified. Transitions from `unknown` are recorded but not notified, so startup is silent.
+  - Power entity: normalized to `on`/`off`/`unknown`, 5s debounce. Each change is recorded via `stats.Recorder.RecordStateChange` (returns previous state duration) and then notified. Transitions to or from `unknown` (startup, WebSocket reconnect) are neither recorded nor notified, so reconnects don't break outage durations.
   - Next on/off sensors: "schedule changed" notifications.
   - Yasno today/tomorrow status sensors (30s debounce): emergency-shutdown alert; tomorrow's schedule fetched from the HA calendar via `calendar.get_events?return_response=true`.
 - **Notifications**: the pause `input_boolean` (`pause_entity_id`) suppresses every notification type. Tomorrow's schedule is sent silently during quiet hours (23:00–06:00, configured timezone).
@@ -53,19 +54,21 @@ internal/logger/         → leveled logger (Debug/Info/Warn/Error/Fatal)
 
 - Inside the add-on: `HA_API_URL=http://supervisor/core/api`, token from `SUPERVISOR_TOKEN` (needs `homeassistant_api: true`). WebSocket path there is `/core/websocket`, not `/api/websocket`; `WSClient.getWSURL` handles both.
 - Auth is always `Authorization: Bearer <token>`.
+- `rootfs/etc/services.d/blackout-notify/finish` halts the add-on with the service's exit code on failure (HA template), so Supervisor sees crashes.
+- Removing an option from `config.yaml` is safe: Supervisor drops unknown saved options with a warning.
 
 ## Conventions
 
 - Code, comments, docs and commits in English; user-facing Telegram messages in Ukrainian (`internal/notifications/messages.go`).
-- Module path is the placeholder `github.com/yourusername/haaddon/telegram-bot`; keep it in imports. Import groups: stdlib, external, internal.
+- Module path: `github.com/pahanium/ha-blackout-notify`. Import groups: stdlib, external, internal.
 - Wrap errors with context: `fmt.Errorf("failed to get state: %w", err)`; don't discard errors with `_`.
 - Log through `internal/logger`, not `log`/`fmt.Print`.
-- Tests: standard `testing`, table-driven, `httptest` servers to mock HA; set env vars with `os.Setenv` + `defer os.Unsetenv`.
+- Tests: standard `testing`, table-driven, `httptest` servers to mock HA; set env vars with `t.Setenv`.
 
 ## Branches and releases
 
 - `beta` publishes as "Blackout Notify (Beta)" with slug `blackout_notify_beta`; `main` as "Blackout Notify" with slug `blackout_notify`. When syncing branches, keep each branch's `name`/`slug`/`description` in `config.yaml` and `repository.yaml`.
-- Every release: bump `version` in `blackout-notify/config.yaml`, add an entry to `blackout-notify/CHANGELOG.md`, make sure tests, `go vet` and the Docker build pass.
+- Every release: bump `version` in `blackout-notify/config.yaml`, add an entry to `blackout-notify/CHANGELOG.md`, run `make check` and `make docker`.
 - CI (`.github/workflows/build.yaml`) runs on push/PR to `main` and `beta`: tests, golangci-lint, image build for all arches; pushes to GHCR only on `v*` tags.
 
 ## Docs

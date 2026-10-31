@@ -2,7 +2,7 @@
 
 ## Description
 
-This add-on allows you to control Home Assistant via Telegram bot and receive automatic notifications about power status changes.
+This add-on sends Telegram notifications about power outages, restorations and Yasno outage schedules, and answers read-only bot commands (statistics, schedule).
 
 ## Features
 
@@ -27,15 +27,11 @@ To find your chat ID:
 1. Message [@userinfobot](https://t.me/userinfobot)
 2. It will return your ID
 
-**Security:** Leave empty if you only need power notifications without bot control commands.
+**Security:** Leave empty if you only need power notifications without bot commands.
 
 #### log_level
 
 Logging level: `debug`, `info`, `warn`, `error`. Default: `info`.
-
-#### polling_interval
-
-Entity state update interval (in seconds). Default: 30.
 
 ### Power Monitoring Settings
 
@@ -81,13 +77,14 @@ Default: `Europe/Kyiv`
 
 | Command | Description |
 |---------|-------------|
-| `/start` | Welcome message and command list |
-| `/status` | Home Assistant status |
-| `/entities` | List available entities |
-| `/state <entity_id>` | Get entity state |
-| `/turn_on <entity_id>` | Turn on entity |
-| `/turn_off <entity_id>` | Turn off entity |
+| `/start` | Welcome message |
+| `/help` | Command list |
+| `/status` | Home Assistant connection status |
+| `/stats [today\|week\|month]` | Power on/off statistics |
+| `/calendar [tomorrow]` | Yasno outage schedule for today or tomorrow |
 | `/chatid` | Show your chat ID |
+
+The bot only reads from Home Assistant; it cannot control entities.
 
 ## Notification Format
 
@@ -132,9 +129,8 @@ See `ha-config-examples.yaml` for detailed configuration examples.
 ## Command Usage Examples
 
 ```
-/state light.living_room
-/turn_on switch.bedroom_fan
-/entities sensor
+/stats week
+/calendar tomorrow
 ```
 
 ## Security
@@ -143,7 +139,7 @@ See `ha-config-examples.yaml` for detailed configuration examples.
 - Bot commands are **disabled by default** (safe)
 - Set `allowed_chat_ids` only if you need bot commands
 - For public channels, use separate `notification_chat_ids`
-- Only listed chat IDs can control Home Assistant
+- Only listed chat IDs can use bot commands; the bot never changes anything in Home Assistant
 
 ## Environment Variables
 

@@ -20,6 +20,7 @@ blackout-notify/rootfs/app
 
 # Local development
 .env
+.data/
 *.local
 power_stats.db
 

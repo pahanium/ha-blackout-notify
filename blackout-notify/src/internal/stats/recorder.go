@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/yourusername/haaddon/telegram-bot/internal/logger"
+	"github.com/pahanium/ha-blackout-notify/internal/logger"
 )
 
 // Recorder handles recording power state changes
