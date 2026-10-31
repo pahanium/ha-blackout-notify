@@ -249,7 +249,7 @@ ha-blackout-notify/
 │   ├── DOCS.md                   # User documentation
 │   ├── CHANGELOG.md              # Version history
 │   ├── rootfs/
-│   │   └── run.sh                # Entry point (bashio)
+│   │   └── etc/services.d/blackout-notify/run  # Entry point (bashio, s6)
 │   └── src/                      # Go source code
 │       ├── cmd/bot/main.go       # Application entry
 │       └── internal/

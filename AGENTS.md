@@ -1,293 +1,74 @@
 # Agent Guidelines for Blackout Notify
 
-Home Assistant add-on written in **Go 1.24+** that monitors power grid status via HA WebSocket API and sends Telegram notifications for power outages/restorations. Packaged as a multi-arch Docker container.
+Home Assistant add-on in **Go 1.24** that watches power state through the HA WebSocket API and sends Telegram notifications about outages, restorations and Yasno outage schedules. Packaged as a multi-arch (amd64/aarch64/armv7) s6-overlay Docker image.
 
-## Build & Test Commands
+## Commands
 
-### Working Directory
-All Go commands must be run from `blackout-notify/src/`:
+All Go commands run from `blackout-notify/src/`:
+
 ```bash
-cd blackout-notify/src
-```
-
-### Testing
-```bash
-# Run all tests
-go test ./...
-
-# Run tests with verbose output
-go test -v ./...
-
-# Run tests for specific package
-go test -v ./internal/config
-go test -v ./internal/homeassistant
-go test -v ./internal/watcher
-go test -v ./internal/stats
-
-# Run with race detector and coverage
-go test -v -race -coverprofile=coverage.txt ./...
-
-# Run single test function
-go test -v -run TestIsChatAllowed ./internal/config
-go test -v -run TestNormalizeState ./internal/watcher
-
-# Run specific test with short mode (skip slow tests)
-go test -v -short -run TestNewDB ./internal/stats
-```
-
-### Building
-```bash
-# Standard build
-go build -o ../bin/blackout-notify ./cmd/bot
-
-# Optimized build (production)
+go test ./...                                          # all tests
+go test -v -run TestNormalizeState ./internal/watcher  # single test
+go test -v -race -coverprofile=coverage.txt ./...      # what CI runs
+go fmt ./... && go vet ./...                           # required before commits; CI also runs golangci-lint
 CGO_ENABLED=0 go build -ldflags="-w -s" -o ../bin/blackout-notify ./cmd/bot
-
-# Docker build for specific architecture (from repo root)
-./scripts/docker-build.sh amd64    # or aarch64, armv7
-
-# Quick local build script (from repo root)
-./scripts/build.sh
 ```
 
-### Linting
-```bash
-# Format code (required before commits)
-go fmt ./...
+From repo root: `./scripts/build.sh` (tidy + test + build), `./scripts/docker-build.sh amd64|aarch64|armv7`.
 
-# Vet code for suspicious constructs
-go vet ./...
+### Running locally
 
-# Run both format and vet
-go fmt ./... && go vet ./...
-```
+- `main.go` loads `../../.env` relative to the **current directory**, so run the binary from `src/` (`../bin/blackout-notify`) with `.env` in the repo root (template: `.env.example`).
+- Local `.env` must use `HA_API_URL=http://<ha-ip>:8123/api` (not the supervisor URL) and `STATS_DB_PATH=./power_stats.db`.
+- Alternative: `docker compose -f docker-compose.dev.yaml up --build` (uses `Dockerfile.dev`, no s6/bashio).
 
-### Dependencies
-```bash
-# Update dependencies
-go mod tidy
-
-# Add new dependency
-go get github.com/package/name@latest
-
-# Verify dependencies
-go mod verify
-
-# If go.sum is corrupted
-rm go.sum && go mod tidy
-```
-
-### Running Locally
-```bash
-# Method 1: Using .env file (EASIEST - recommended for development)
-# The bot automatically loads .env from repo root
-cd blackout-notify/src
-go build -o ../bin/blackout-notify ./cmd/bot
-../bin/blackout-notify  # Will auto-load ../../.env
-
-# Method 2: Direct Go execution with manual env vars
-export TELEGRAM_TOKEN="xxx"
-export HA_API_URL="http://192.168.1.100:8123/api"
-export HA_TOKEN="xxx"
-export LOG_LEVEL="debug"
-export STATS_DB_PATH="./power_stats.db"
-cd blackout-notify/src
-go run ./cmd/bot
-
-# Method 3: Using Docker Compose (from repo root)
-cp .env.example .env && nano .env
-docker compose -f docker-compose.dev.yaml up --build
-```
-
-**Important for local development:**
-- `.env` file must be in repository root (not in `src/`)
-- Set `HA_API_URL=http://192.168.X.X:8123/api` (not `http://supervisor/core/api`)
-- Set `STATS_DB_PATH=./power_stats.db` (not `/data/power_stats.db`)
-- The bot uses `github.com/joho/godotenv` to auto-load `.env` file
-
-
-## Project Architecture
+## Architecture
 
 ```
-cmd/bot/main.go          → Entry point: loads config, wires components, handles signals
-internal/config/         → Environment-based configuration (HA passes options as env vars)
-internal/bot/            → Telegram bot command handler (/start, /status, /stats)
-internal/homeassistant/  → REST client + WebSocket client for HA API
-internal/watcher/        → Power state monitoring with debouncing
-internal/notifications/  → Notification formatting and delivery (Ukrainian messages)
-internal/stats/          → SQLite-based power duration statistics (NEW in v0.4.0+)
-internal/logger/         → Simple leveled logging (Debug, Info, Warn, Error, Fatal)
+cmd/bot/main.go          → wiring, signal handling
+internal/config/         → env-var config
+internal/homeassistant/  → REST client, calendar.get_events, WebSocket client with auto-reconnect
+internal/watcher/        → reacts to HA state changes (power + schedule + Yasno sensors)
+internal/notifications/  → message formatting and sending; all Ukrainian strings in messages.go
+internal/stats/          → SQLite power_events table, /stats queries
+internal/bot/            → Telegram command handlers
+internal/logger/         → leveled logger (Debug/Info/Warn/Error/Fatal)
 ```
 
-**Data flow**: `rootfs/run.sh` (bashio) → env vars → `config.Load()` → `main.go` creates `haClient`, `wsClient`, `bot`, `watcher`, `notifSvc`, `statsDB` → watcher subscribes to HA WebSocket events → triggers notifications + records stats
+- **Config path**: add-on options in `blackout-notify/config.yaml` → exported as env vars by `rootfs/etc/services.d/blackout-notify/run` (bashio) → `config.Load()`. A new option must be added to `config.yaml` (both `options` and `schema`), the `run` script, `internal/config/config.go`, and `.env.example`.
+- **Conditional wiring in `main.go`**:
+  - Telegram command polling only if `allowed_chat_ids` is non-empty (`IsBotCommandsEnabled`); empty = notifications only, by design for security.
+  - `notifications.Service` if power monitoring **or** `yasno_calendar_id` is set (`/calendar` needs it).
+  - Watcher, WebSocket client and stats DB only if `watched_entity_id` is set (`IsPowerMonitoringEnabled`).
+  - The bot receives optional deps via setters (`SetStatsProvider`, `SetNotificationService`), so they can be nil in handlers.
+- **Event flow**: `watcher.Start` registers per-entity handlers on `WSClient.OnStateChange`, then blocks in `RunWithReconnect`.
+  - Power entity: normalized to `on`/`off`/`unknown`, 5s debounce. Each change is recorded via `stats.Recorder.RecordStateChange` (returns previous state duration) and then notified. Transitions from `unknown` are recorded but not notified, so startup is silent.
+  - Next on/off sensors: "schedule changed" notifications.
+  - Yasno today/tomorrow status sensors (30s debounce): emergency-shutdown alert; tomorrow's schedule fetched from the HA calendar via `calendar.get_events?return_response=true`.
+- **Notifications**: the pause `input_boolean` (`pause_entity_id`) suppresses every notification type. Tomorrow's schedule is sent silently during quiet hours (23:00–06:00, configured timezone).
+- **Stats DB**: `modernc.org/sqlite` (pure Go, keeps `CGO_ENABLED=0`); `/data/power_stats.db` in the add-on, persists across updates.
 
-## Code Style Guidelines
+## HA specifics
 
-### Language Convention
-- **All code, comments, documentation in English**
-- **Exception**: User-facing Telegram messages are in Ukrainian (see `notifications/service.go`)
+- Inside the add-on: `HA_API_URL=http://supervisor/core/api`, token from `SUPERVISOR_TOKEN` (needs `homeassistant_api: true`). WebSocket path there is `/core/websocket`, not `/api/websocket`; `WSClient.getWSURL` handles both.
+- Auth is always `Authorization: Bearer <token>`.
 
-### Imports Organization
-Group imports in this order (separated by blank lines):
-1. Standard library packages
-2. External dependencies
-3. Internal packages
+## Conventions
 
-```go
-import (
-    "context"
-    "fmt"
-    "strings"
+- Code, comments, docs and commits in English; user-facing Telegram messages in Ukrainian (`internal/notifications/messages.go`).
+- Module path is the placeholder `github.com/yourusername/haaddon/telegram-bot`; keep it in imports. Import groups: stdlib, external, internal.
+- Wrap errors with context: `fmt.Errorf("failed to get state: %w", err)`; don't discard errors with `_`.
+- Log through `internal/logger`, not `log`/`fmt.Print`.
+- Tests: standard `testing`, table-driven, `httptest` servers to mock HA; set env vars with `os.Setenv` + `defer os.Unsetenv`.
 
-    tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+## Branches and releases
 
-    "github.com/yourusername/haaddon/telegram-bot/internal/config"
-    "github.com/yourusername/haaddon/telegram-bot/internal/logger"
-)
-```
+- `beta` publishes as "Blackout Notify (Beta)" with slug `blackout_notify_beta`; `main` as "Blackout Notify" with slug `blackout_notify`. When syncing branches, keep each branch's `name`/`slug`/`description` in `config.yaml` and `repository.yaml`.
+- Every release: bump `version` in `blackout-notify/config.yaml`, add an entry to `blackout-notify/CHANGELOG.md`, make sure tests, `go vet` and the Docker build pass.
+- CI (`.github/workflows/build.yaml`) builds images for all arches; pushes to GHCR only on `v*` tags.
 
-### Package Declarations
-- Each `.go` file must have **exactly ONE** `package` declaration at the top
-- Package name matches directory name (e.g., `internal/config/` → `package config`)
+## Docs
 
-### Naming Conventions
-- **Exported** (public): PascalCase - `NewClient`, `GetState`, `TelegramToken`
-- **Unexported** (private): camelCase - `setAuthHeader`, `getDomain`, `isPaused`
-- **Constants**: PascalCase or SCREAMING_SNAKE_CASE for enums - `IconPowerOn`, `LevelDebug`
-- **Interfaces**: Name with -er suffix when possible - `Logger`, `Watcher`
-
-### Error Handling
-Always wrap errors with context using `fmt.Errorf` and `%w`:
-```go
-// Good
-return fmt.Errorf("failed to connect to HA: %w", err)
-return fmt.Errorf("failed to parse time '%s': %w", entity.State, parseErr)
-
-// Bad
-return err
-return fmt.Errorf("error: %v", err)
-```
-
-Check errors immediately after function calls:
-```go
-// Good
-entity, err := c.haClient.GetState(ctx, entityID)
-if err != nil {
-    return fmt.Errorf("failed to get state: %w", err)
-}
-
-// Bad
-entity, _ := c.haClient.GetState(ctx, entityID)
-```
-
-### Types and Structs
-- Use struct tags for JSON marshaling: `` `json:"entity_id"` ``
-- Define structs near their usage or in dedicated types file
-- Initialize structs with explicit field names:
-```go
-// Good
-client := &Client{
-    baseURL: url,
-    token: token,
-    httpClient: &http.Client{
-        Timeout: 30 * time.Second,
-    },
-}
-
-// Acceptable for small structs
-return &Service{bot, cfg, haClient, loc}
-```
-
-### Context Usage
-- Always pass `context.Context` as the first parameter
-- Use `context.Background()` for top-level operations
-- Use `context.WithCancel()` for graceful shutdown
-- Check `ctx.Done()` in long-running operations
-
-### Configuration
-- All config via environment variables parsed in `internal/config/config.go`
-- Inside HA add-on container: use `http://supervisor/core/api` as HA API URL
-- `SUPERVISOR_TOKEN` is auto-injected by HA when `homeassistant_api: true`
-- Chat IDs parsed from comma/space-separated strings or JSON arrays
-- **Security**: Bot commands disabled by default (empty `allowed_chat_ids`)
-
-### Home Assistant Integration
-- **REST Client** (`client.go`): Entity state queries, service calls
-- **WebSocket Client** (`websocket.go`): Real-time state change subscriptions with auto-reconnect
-- For Supervisor API, WebSocket path is `/core/websocket`, not `/api/websocket`
-- Always use Bearer token authentication: `Authorization: Bearer <token>`
-
-### Logging
-Use the `internal/logger` package with appropriate levels:
-```go
-logger.Debug("Config loaded: HA URL=%s, Polling=%ds", cfg.HAApiURL, cfg.PollingInterval)
-logger.Info("Successfully connected to Home Assistant")
-logger.Warn("Failed to get next off time: %v", err)
-logger.Error("Bot error: %v", err)
-logger.Fatal("Failed to load config: %v", err) // Exits program
-```
-
-### Testing Patterns
-- Tests use standard Go testing with `httptest` for mocking HA API
-- Set env vars before test runs:
-```go
-os.Setenv("TELEGRAM_TOKEN", "test_token")
-defer os.Unsetenv("TELEGRAM_TOKEN")
-```
-- Use table-driven tests for multiple scenarios
-- Name test cases descriptively
-
-## Common Issues & Solutions
-
-### Duplicate package declarations
-Each `.go` file must have exactly ONE `package` declaration. Check for:
-- Multiple package lines
-- Package declaration in comments
-
-### go.sum mismatch
-```bash
-rm go.sum
-go mod tidy
-```
-
-### WebSocket auth fails
-- Check if using Supervisor URL (`http://supervisor/core/api`) vs external URL
-- Different auth paths for different environments
-- Verify token is valid and has API access
-
-### Add-on not appearing in HA
-1. Check logs: **Settings** → **System** → **Logs**
-2. Restart Supervisor: **Settings** → **System** → **Restart Supervisor**
-3. Verify `config.yaml` syntax is valid
-
-## Home Assistant Add-on Specifics
-
-### File Structure
-- `config.yaml`: Add-on metadata, options schema, version (currently v0.4.4)
-- `rootfs/etc/services.d/blackout-notify/run`: s6-overlay entry point using bashio
-- `Dockerfile`: Multi-stage build (golang:1.24-alpine → HA base image)
-
-### Updating Add-on
-When making changes:
-1. Bump `version` in `blackout-notify/config.yaml`
-2. Update `blackout-notify/CHANGELOG.md`
-3. Run pre-deployment checklist (see below)
-4. Test locally before pushing
-
-### Pre-deployment Checklist
-- [ ] Tests pass: `go test ./...`
-- [ ] Code formatted: `go fmt ./...` and `go vet ./...`
-- [ ] Docker image builds: `./scripts/docker-build.sh amd64`
-- [ ] `config.yaml` has correct version
-- [ ] `CHANGELOG.md` updated
-- [ ] Telegram token works (bot responds to `/start`)
-- [ ] HA token has API access
-- [ ] `allowed_chat_ids` configured (security!)
-
-## Documentation Structure
-
-- `README.md` - Complete project documentation (overview, installation, development, troubleshooting)
-- `blackout-notify/DOCS.md` - User-facing add-on documentation (shown in HA UI)
-- `blackout-notify/CHANGELOG.md` - Version history
-- `.github/copilot-instructions.md` - AI assistant guidelines
-- `AGENTS.md` - This file (agent-specific development guidelines)
+- `README.md`: project overview, install, development.
+- `blackout-notify/DOCS.md`: user docs shown in the HA add-on UI; update when options change.
+- `.github/copilot-instructions.md`: Copilot guidelines (a subset of this file).
