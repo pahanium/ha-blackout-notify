@@ -1,6 +1,6 @@
 # Agent Guidelines for Blackout Notify
 
-Home Assistant add-on in **Go 1.24** that watches power state through the HA WebSocket API and sends Telegram notifications about outages, restorations and Yasno outage schedules. Packaged as a multi-arch (amd64/aarch64/armv7) s6-overlay Docker image.
+Home Assistant add-on in **Go 1.26** that watches power state through the HA WebSocket API and sends Telegram notifications about outages, restorations and Yasno outage schedules. Packaged as a multi-arch (amd64/aarch64/armv7) s6-overlay Docker image.
 
 ## Commands
 
@@ -10,7 +10,8 @@ All Go commands run from `blackout-notify/src/`:
 go test ./...                                          # all tests
 go test -v -run TestNormalizeState ./internal/watcher  # single test
 go test -v -race -coverprofile=coverage.txt ./...      # what CI runs
-go fmt ./... && go vet ./...                           # required before commits; CI also runs golangci-lint
+go fmt ./... && go vet ./...                           # required before commits
+go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0 run ./...  # same linter as CI (config: .golangci.yml)
 CGO_ENABLED=0 go build -ldflags="-w -s" -o ../bin/blackout-notify ./cmd/bot
 ```
 

@@ -1,7 +1,7 @@
 # Development Dockerfile - simple Go binary execution without s6-overlay
 # Use this for local testing outside Home Assistant environment
 
-FROM golang:1.24-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 WORKDIR /build
 
@@ -18,7 +18,7 @@ RUN go mod download
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o telegram-bot ./cmd/bot
 
 # Production stage - minimal image
-FROM alpine:3.18
+FROM alpine:3.24
 
 RUN apk add --no-cache ca-certificates tzdata
 
