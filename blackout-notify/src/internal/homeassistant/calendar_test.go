@@ -64,7 +64,9 @@ func TestGetCalendarEvents(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			t.Errorf("Failed to encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -108,7 +110,9 @@ func TestGetCalendarEventsEmpty(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			t.Errorf("Failed to encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -136,7 +140,9 @@ func TestGetCalendarEventsNotFound(t *testing.T) {
 		response := CalendarEventsResponse{}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			t.Errorf("Failed to encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -184,7 +190,9 @@ func TestGetCalendarEventsArrayFormat(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			t.Errorf("Failed to encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -244,7 +252,9 @@ func TestGetCalendarEventsServiceResponse(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			t.Errorf("Failed to encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 

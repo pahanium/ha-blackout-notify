@@ -241,7 +241,6 @@ cd ..
 ```
 ha-blackout-notify/
 ├── .github/
-│   ├── copilot-instructions.md   # AI assistant guidelines
 │   └── workflows/                # CI/CD pipelines
 ├── blackout-notify/              # Add-on directory
 │   ├── config.yaml               # HA add-on configuration

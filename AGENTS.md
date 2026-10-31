@@ -65,10 +65,9 @@ internal/logger/         → leveled logger (Debug/Info/Warn/Error/Fatal)
 
 - `beta` publishes as "Blackout Notify (Beta)" with slug `blackout_notify_beta`; `main` as "Blackout Notify" with slug `blackout_notify`. When syncing branches, keep each branch's `name`/`slug`/`description` in `config.yaml` and `repository.yaml`.
 - Every release: bump `version` in `blackout-notify/config.yaml`, add an entry to `blackout-notify/CHANGELOG.md`, make sure tests, `go vet` and the Docker build pass.
-- CI (`.github/workflows/build.yaml`) builds images for all arches; pushes to GHCR only on `v*` tags.
+- CI (`.github/workflows/build.yaml`) runs on push/PR to `main` and `beta`: tests, golangci-lint, image build for all arches; pushes to GHCR only on `v*` tags.
 
 ## Docs
 
 - `README.md`: project overview, install, development.
 - `blackout-notify/DOCS.md`: user docs shown in the HA add-on UI; update when options change.
-- `.github/copilot-instructions.md`: Copilot guidelines (a subset of this file).
