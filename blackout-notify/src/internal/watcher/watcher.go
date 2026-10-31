@@ -152,6 +152,18 @@ func (w *Watcher) handleStateChange(ctx context.Context, oldState, newState *hom
 	w.lastChange = changeTime
 	w.mu.Unlock()
 
+	// Skip recording and notification if transitioning from unknown state
+	if previousState == PowerStateUnknown {
+		logger.Info("State transition from unknown to %s, skipping recording and notification (initial state detection)", newPowerState)
+		return
+	}
+
+	// Skip recording and notification if transitioning to unknown state
+	if newPowerState == PowerStateUnknown {
+		logger.Info("State transition from %s to unknown, skipping recording and notification (connection issue)", previousState)
+		return
+	}
+
 	// Record state change in statistics and get previous state duration
 	var previousStateDuration int64 = 0
 	if w.statsRecorder != nil {
@@ -163,12 +175,6 @@ func (w *Watcher) handleStateChange(ctx context.Context, oldState, newState *hom
 			previousStateDuration = duration
 			logger.Debug("Previous state (%s) lasted %d seconds", prevState, duration)
 		}
-	}
-
-	// Skip notification if transitioning from unknown state
-	if previousState == PowerStateUnknown {
-		logger.Info("State transition from unknown to %s, skipping notification (initial state detection)", newPowerState)
-		return
 	}
 
 	// Send notification based on new state with duration
@@ -319,6 +325,26 @@ func (w *Watcher) handleScheduleChange(ctx context.Context, scheduleType string,
 			logger.Debug("Suppressing schedule notification: old time %s already passed (%.0f min ago)",
 				formatTimePtr(oldTime), timeSinceOldSchedule.Minutes())
 			shouldNotify = false
+		}
+	}
+
+	// Suppress notification if new scheduled time is for a different day (not today)
+	// This prevents spam when evening schedule updates reflect tomorrow's schedule
+	if shouldNotify && newTime != nil {
+		now := time.Now()
+		// Get timezone from notification service for correct date comparison
+		if loc := w.notifSvc.GetLocation(); loc != nil {
+			now = now.In(loc)
+			newTimeDate := newTime.In(loc).Truncate(24 * time.Hour)
+			todayDate := now.Truncate(24 * time.Hour)
+
+			if !newTimeDate.Equal(todayDate) {
+				logger.Debug("Suppressing schedule notification: new time %s is for %s (not today %s)",
+					formatTimePtr(newTime),
+					newTime.In(loc).Format("2006-01-02"),
+					now.Format("2006-01-02"))
+				shouldNotify = false
+			}
 		}
 	}
 
