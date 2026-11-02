@@ -108,9 +108,39 @@ The bot only reads from Home Assistant; it cannot control entities.
 ```
 🔄 *Графік оновлено*
 
-📅 Заживлення через 2 год 30 хв (18:00)
+📅 Відключення через 1год 56хв (08:30)
 за даними Yasno
+
+🪫08:30 - 15:30
+🪫19:00 - 00:00
 ```
+
+### Schedule for today / tomorrow
+Sent once per date (same format as `/calendar`); not repeated when tomorrow becomes today.
+```
+📅 *Графік відключень на завтра вт, 03.11, група 2.1*
+
+🪫01:00 - 08:00
+🪫11:30 - 18:30
+```
+
+### Emergency shutdowns
+```
+🚨 *Аварійні відключення!*
+
+Графік не діє. Світло може відключитися в будь-який момент.
+```
+When they end:
+```
+✅ *Аварійні відключення скасовані*
+
+📅 Відключення через 2год 15хв (14:45)
+за даними Yasno
+
+🪫14:45 - 21:30
+```
+
+If power goes off or comes back outside the schedule (more than 30 min before a planned outage, within 30 min after it started, or during emergency shutdowns), the message only states the fact, without the next on/off time.
 
 ## Home Assistant Configuration
 

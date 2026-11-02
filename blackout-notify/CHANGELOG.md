@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.0] - 2026-11-02
+
+### Changed
+- 📅 **Schedule messages without repeats**: Today's and tomorrow's schedules are sent in the `/calendar` format. Each sent schedule is remembered per date, so tomorrow's schedule is not sent again when it becomes today's at midnight. Today's schedule is sent if it wasn't announced yesterday or if it changed
+- 🔄 **"Графік оновлено"** now lists today's outage intervals below the next on/off time
+- ✅ **End of emergency shutdowns**: New message "Аварійні відключення скасовані" with the next on/off time and today's intervals. The start of emergency shutdowns is still a single alert without schedule
+- 🧮 **One message per schedule update**: Events from all schedule sensors are combined, so a Yasno update produces one message
+- ⚠️ **Unscheduled outages**: Power off/on messages no longer show the next on/off time when the change doesn't match the schedule (off more than 30 min before a planned outage or outside it, back within 30 min after a planned outage started, or during emergency shutdowns)
+
+### Upgrade note
+- The Home Assistant automation that posted "Сьогодні: / Завтра:" schedules can be disabled; the add-on now sends these. On the first start the current schedules are recorded without sending
+
 ## [0.7.0] - 2026-11-02
 
 ### Removed

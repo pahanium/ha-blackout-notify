@@ -62,6 +62,12 @@ func (db *DB) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_changed_at ON power_events(changed_at);
 	CREATE INDEX IF NOT EXISTS idx_state ON power_events(state);
 	CREATE INDEX IF NOT EXISTS idx_entity_id ON power_events(entity_id);
+
+	CREATE TABLE IF NOT EXISTS sent_schedules (
+		date TEXT PRIMARY KEY,
+		fingerprint TEXT NOT NULL,
+		sent_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
 	`
 
 	_, err := db.conn.Exec(schema)

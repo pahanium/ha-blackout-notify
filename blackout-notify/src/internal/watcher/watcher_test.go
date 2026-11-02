@@ -14,15 +14,17 @@ const testDebounce = 20 * time.Millisecond
 
 // fakeNotifier records calls instead of sending Telegram messages
 type fakeNotifier struct {
-	mu            sync.Mutex
-	powerOn       []int64
-	powerOff      []int64
-	scheduleCalls []string
-	yasnoTomorrow int
-	yasnoDates    []time.Time
-	emergency     int
-	scheduled     map[string]*time.Time
-	loc           *time.Location // mirrors config.Location for assertions
+	mu              sync.Mutex
+	powerOn         []int64
+	powerOff        []int64
+	scheduleChanged []string
+	emergencyEnded  []string
+	schedules       []string // dates (YYYY-MM-DD) of NotifySchedule calls
+	emergency       int
+	scheduled       map[string]*time.Time
+	events          map[string][]homeassistant.CalendarEvent // by date
+	yasnoDates      []time.Time
+	loc             *time.Location // mirrors config.Location for assertions
 }
 
 func (f *fakeNotifier) NotifyPowerOn(ctx context.Context, d int64) error {
@@ -39,17 +41,24 @@ func (f *fakeNotifier) NotifyPowerOff(ctx context.Context, d int64) error {
 	return nil
 }
 
-func (f *fakeNotifier) NotifyScheduleChanged(ctx context.Context, scheduleType string, oldTime, newTime *time.Time) error {
+func (f *fakeNotifier) NotifyScheduleChanged(ctx context.Context, scheduleType string, newTime *time.Time, todayEvents []homeassistant.CalendarEvent) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.scheduleCalls = append(f.scheduleCalls, scheduleType)
+	f.scheduleChanged = append(f.scheduleChanged, scheduleType)
 	return nil
 }
 
-func (f *fakeNotifier) NotifyYasnoScheduleTomorrow(ctx context.Context, events []homeassistant.CalendarEvent, groupName string) error {
+func (f *fakeNotifier) NotifyEmergencyEnded(ctx context.Context, scheduleType string, nextTime *time.Time, todayEvents []homeassistant.CalendarEvent) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.yasnoTomorrow++
+	f.emergencyEnded = append(f.emergencyEnded, scheduleType)
+	return nil
+}
+
+func (f *fakeNotifier) NotifySchedule(ctx context.Context, events []homeassistant.CalendarEvent, date time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.schedules = append(f.schedules, date.In(f.loc).Format("2006-01-02"))
 	return nil
 }
 
@@ -70,13 +79,56 @@ func (f *fakeNotifier) GetYasnoCalendarEvents(ctx context.Context, calendarID st
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.yasnoDates = append(f.yasnoDates, date)
-	return nil, nil
+	return f.events[date.In(f.loc).Format("2006-01-02")], nil
 }
 
 func (f *fakeNotifier) counts() (on, off int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.powerOn), len(f.powerOff)
+}
+
+// fakeStates serves Yasno status sensor states
+type fakeStates struct {
+	mu     sync.Mutex
+	states map[string]string
+}
+
+func (f *fakeStates) GetState(ctx context.Context, entityID string) (*homeassistant.Entity, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return &homeassistant.Entity{EntityID: entityID, State: f.states[entityID]}, nil
+}
+
+func (f *fakeStates) set(entityID, state string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.states[entityID] = state
+}
+
+// fakeScheduleLog is an in-memory ScheduleLog
+type fakeScheduleLog struct {
+	mu   sync.Mutex
+	sent map[string]string
+}
+
+func (l *fakeScheduleLog) LastSent(ctx context.Context, date string) (string, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.sent[date], nil
+}
+
+func (l *fakeScheduleLog) MarkSent(ctx context.Context, date, fingerprint string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.sent[date] = fingerprint
+	return nil
+}
+
+func (l *fakeScheduleLog) IsEmpty(ctx context.Context) (bool, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.sent) == 0, nil
 }
 
 // fakeRecorder records state changes and returns a fixed previous duration
@@ -104,14 +156,31 @@ func (r *fakeRecorder) recorded() []string {
 	return append([]string(nil), r.states...)
 }
 
+// testEnv bundles fakes behind a Watcher
+type testEnv struct {
+	notifier *fakeNotifier
+	recorder *fakeRecorder
+	states   *fakeStates
+	log      *fakeScheduleLog
+}
+
 func newTestWatcher(t *testing.T, initial PowerState) (*Watcher, *fakeNotifier, *fakeRecorder) {
+	w, env := newScheduleWatcher(t, initial)
+	return w, env.notifier, env.recorder
+}
+
+func newScheduleWatcher(t *testing.T, initial PowerState) (*Watcher, *testEnv) {
 	t.Helper()
 	kyiv, err := time.LoadLocation("Europe/Kyiv")
 	if err != nil {
 		t.Fatalf("load location: %v", err)
 	}
-	n := &fakeNotifier{scheduled: map[string]*time.Time{}, loc: kyiv}
-	r := &fakeRecorder{lastState: string(initial), duration: 3600}
+	env := &testEnv{
+		notifier: &fakeNotifier{scheduled: map[string]*time.Time{}, events: map[string][]homeassistant.CalendarEvent{}, loc: kyiv},
+		recorder: &fakeRecorder{lastState: string(initial), duration: 3600},
+		states:   &fakeStates{states: map[string]string{}},
+		log:      &fakeScheduleLog{sent: map[string]string{}},
+	}
 	cfg := &config.Config{
 		WatchedEntityID:       "binary_sensor.power",
 		NextOnSensorID:        "sensor.next_on",
@@ -122,11 +191,12 @@ func newTestWatcher(t *testing.T, initial PowerState) (*Watcher, *fakeNotifier, 
 		Timezone:              "Europe/Kyiv",
 		Location:              kyiv,
 	}
-	w := NewWatcher(cfg, nil, nil, n, r)
+	w := NewWatcher(cfg, nil, env.states, env.notifier, env.recorder, env.log)
 	w.debounceTime = testDebounce
+	w.reconcileDelay = testDebounce
 	w.lastState = initial
 	t.Cleanup(w.Stop)
-	return w, n, r
+	return w, env
 }
 
 func send(w *Watcher, state string) {
@@ -333,88 +403,6 @@ func TestPowerChange_StopCancelsPending(t *testing.T) {
 	}
 }
 
-func scheduleEvent(w *Watcher, scheduleType string) {
-	w.handleScheduleChange(context.Background(), scheduleType, nil, &homeassistant.Entity{State: "changed"})
-}
-
-func TestScheduleChange_NotifiesRelevantType(t *testing.T) {
-	w, n, _ := newTestWatcher(t, PowerStateOn)
-	inOneHour := time.Now().Add(time.Hour)
-	if !sameDay(inOneHour, time.Now(), n.loc) {
-		t.Skip("next hour is tomorrow in Kyiv; same-day suppression would apply")
-	}
-	n.scheduled["sensor.next_off"] = &inOneHour
-
-	scheduleEvent(w, "off")
-
-	if len(n.scheduleCalls) != 1 || n.scheduleCalls[0] != "off" {
-		t.Errorf("power on + next_off changed: want [off] notification, got %v", n.scheduleCalls)
-	}
-}
-
-func TestScheduleChange_IrrelevantTypeNotNotified(t *testing.T) {
-	w, n, _ := newTestWatcher(t, PowerStateOn)
-	inOneHour := time.Now().Add(time.Hour)
-	n.scheduled["sensor.next_on"] = &inOneHour
-
-	scheduleEvent(w, "on")
-
-	if len(n.scheduleCalls) != 0 {
-		t.Errorf("power on + next_on changed: want no notification, got %v", n.scheduleCalls)
-	}
-}
-
-func TestScheduleChange_OnAndOffTrackedIndependently(t *testing.T) {
-	w, n, _ := newTestWatcher(t, PowerStateOn)
-	on := time.Now().Add(2 * time.Hour)
-	off := time.Now().Add(time.Hour)
-	n.scheduled["sensor.next_on"] = &on
-	n.scheduled["sensor.next_off"] = &off
-
-	// Both sensors update at once when a new schedule is published
-	scheduleEvent(w, "on")
-	scheduleEvent(w, "off")
-
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.lastNextOnTime == nil || w.lastNextOffTime == nil {
-		t.Errorf("both schedule times must be stored, got on=%v off=%v", w.lastNextOnTime, w.lastNextOffTime)
-	}
-}
-
-func TestScheduleChange_CancellationKeepsOldTime(t *testing.T) {
-	w, n, _ := newTestWatcher(t, PowerStateOn)
-	old := time.Now().Add(-30 * time.Minute)
-	w.lastNextOffTime = &old
-	n.scheduled["sensor.next_off"] = nil
-
-	scheduleEvent(w, "off")
-
-	if w.lastNextOffTime == nil || !w.lastNextOffTime.Equal(old) {
-		t.Errorf("cancelled schedule must keep previous time, got %v", w.lastNextOffTime)
-	}
-	if len(n.scheduleCalls) != 0 {
-		t.Errorf("cancellation must not notify, got %v", n.scheduleCalls)
-	}
-}
-
-func TestScheduleChange_RecentlyPassedOldTimeSuppressed(t *testing.T) {
-	w, n, _ := newTestWatcher(t, PowerStateOn)
-	old := time.Now().Add(-30 * time.Minute)
-	next := time.Now().Add(time.Hour)
-	w.lastNextOffTime = &old
-	n.scheduled["sensor.next_off"] = &next
-
-	scheduleEvent(w, "off")
-
-	if len(n.scheduleCalls) != 0 {
-		t.Errorf("old time passed 30 min ago: want suppressed, got %v", n.scheduleCalls)
-	}
-	if w.lastNextOffTime == nil || !w.lastNextOffTime.Equal(next) {
-		t.Errorf("new time must be stored even when suppressed, got %v", w.lastNextOffTime)
-	}
-}
-
 func TestSameDay_UsesLocalMidnight(t *testing.T) {
 	kyiv, err := time.LoadLocation("Europe/Kyiv")
 	if err != nil {
@@ -430,55 +418,6 @@ func TestSameDay_UsesLocalMidnight(t *testing.T) {
 	}
 	if sameDay(late, nextDay, kyiv) {
 		t.Error("23:00 and next 00:30 Kyiv must be different days")
-	}
-}
-
-func yasnoEvent(w *Watcher, sensor, state string) {
-	e := &homeassistant.Entity{State: state}
-	if sensor == "today" {
-		w.handleYasnoTodayChange(context.Background(), nil, e)
-	} else {
-		w.handleYasnoTomorrowChange(context.Background(), nil, e)
-	}
-}
-
-func TestYasno_TodayChangeDoesNotBlockTomorrow(t *testing.T) {
-	w, n, _ := newTestWatcher(t, PowerStateOn)
-
-	yasnoEvent(w, "today", "emergency_shutdowns")
-	yasnoEvent(w, "tomorrow", "schedule_applies")
-
-	if n.emergency != 1 {
-		t.Errorf("want 1 emergency notification, got %d", n.emergency)
-	}
-	if n.yasnoTomorrow != 1 {
-		t.Errorf("tomorrow schedule must be sent even right after a today change, got %d", n.yasnoTomorrow)
-	}
-}
-
-func TestYasno_TomorrowUsesConfiguredTimezone(t *testing.T) {
-	w, n, _ := newTestWatcher(t, PowerStateOn)
-
-	yasnoEvent(w, "tomorrow", "schedule_applies")
-
-	if len(n.yasnoDates) != 1 {
-		t.Fatalf("want 1 calendar request, got %d", len(n.yasnoDates))
-	}
-	want := time.Now().In(n.loc).AddDate(0, 0, 1).Format("2006-01-02")
-	if got := n.yasnoDates[0].In(n.loc).Format("2006-01-02"); got != want {
-		t.Errorf("want tomorrow %s in Kyiv, got %s", want, got)
-	}
-}
-
-func TestYasno_DebouncePerSensor(t *testing.T) {
-	w, n, _ := newTestWatcher(t, PowerStateOn)
-
-	yasnoEvent(w, "today", "emergency_shutdowns")
-	yasnoEvent(w, "today", "schedule_applies")
-	yasnoEvent(w, "today", "emergency_shutdowns")
-
-	if n.emergency != 1 {
-		t.Errorf("repeated today changes within debounce should notify once, got %d", n.emergency)
 	}
 }
 

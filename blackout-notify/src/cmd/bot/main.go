@@ -106,7 +106,7 @@ func main() {
 		wsClient := homeassistant.NewWSClient(cfg.HAApiURL, cfg.HAToken)
 
 		// Initialize power watcher
-		powerWatcher = watcher.NewWatcher(cfg, wsClient, haClient, notifSvc, statsRecorder)
+		powerWatcher = watcher.NewWatcher(cfg, wsClient, haClient, notifSvc, statsRecorder, stats.NewScheduleLog(statsDB))
 
 		// Start power watcher in a separate goroutine
 		go func() {
