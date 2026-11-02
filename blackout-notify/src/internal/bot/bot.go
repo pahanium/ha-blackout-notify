@@ -3,13 +3,13 @@ package bot
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/pahanium/ha-blackout-notify/internal/config"
 	"github.com/pahanium/ha-blackout-notify/internal/homeassistant"
-	"github.com/pahanium/ha-blackout-notify/internal/logger"
 	"github.com/pahanium/ha-blackout-notify/internal/notifications"
 	"github.com/pahanium/ha-blackout-notify/internal/stats"
 )
@@ -17,7 +17,6 @@ import (
 // NotificationService interface for accessing notification formatting
 type NotificationService interface {
 	FormatYasnoSchedule(events []homeassistant.CalendarEvent, date time.Time, groupName string) string
-	GetLocation() *time.Location
 }
 
 // Bot represents a Telegram bot
@@ -38,7 +37,7 @@ func New(cfg *config.Config, haClient *homeassistant.Client) (*Bot, error) {
 		return nil, fmt.Errorf("failed to create bot: %w", err)
 	}
 
-	logger.Info("Authorized on account %s", api.Self.UserName)
+	slog.Info("Authorized on Telegram", "account", api.Self.UserName)
 
 	return &Bot{
 		api:      api,
@@ -84,11 +83,11 @@ func (b *Bot) Start(ctx context.Context) error {
 
 			// Check if chat ID is allowed
 			if !b.config.IsChatAllowed(update.Message.Chat.ID) {
-				logger.Warn("Unauthorized access attempt from chat ID: %d", update.Message.Chat.ID)
+				slog.Warn("Unauthorized access attempt", "chat_id", update.Message.Chat.ID)
 				if len(b.config.AllowedChatIDs) == 0 {
-					b.sendMessage(update.Message.Chat.ID, "⛔ Bot commands are disabled. Configure allowed_chat_ids to enable.")
+					b.sendMessage(update.Message.Chat.ID, MsgCommandsDisabled)
 				} else {
-					b.sendMessage(update.Message.Chat.ID, "⛔ Access denied. Your chat ID is not in the allowed list.")
+					b.sendMessage(update.Message.Chat.ID, MsgAccessDenied)
 				}
 				continue
 			}
@@ -107,14 +106,14 @@ func (b *Bot) Stop() {
 
 func (b *Bot) handleMessage(ctx context.Context, message *tgbotapi.Message) {
 	if !message.IsCommand() {
-		b.sendMessage(message.Chat.ID, "Please use commands. Type /help for available commands.")
+		b.sendMessage(message.Chat.ID, MsgNotACommand)
 		return
 	}
 
 	command := message.Command()
 	args := message.CommandArguments()
 
-	logger.Debug("Received command: /%s %s from chat %d", command, args, message.Chat.ID)
+	slog.Debug("Received command", "command", command, "args", args, "chat_id", message.Chat.ID)
 
 	var response string
 	var err error
@@ -131,14 +130,14 @@ func (b *Bot) handleMessage(ctx context.Context, message *tgbotapi.Message) {
 	case "calendar":
 		response, err = b.handleCalendar(ctx, args)
 	case "chatid":
-		response = fmt.Sprintf("Your chat ID: `%d`", message.Chat.ID)
+		response = fmt.Sprintf(MsgChatID, message.Chat.ID)
 	default:
-		response = fmt.Sprintf("Unknown command: /%s\nType /help for available commands.", command)
+		response = fmt.Sprintf(MsgUnknownCommand, tgbotapi.EscapeText(tgbotapi.ModeMarkdown, command))
 	}
 
 	if err != nil {
-		response = fmt.Sprintf("❌ Error: %s", err.Error())
-		logger.Error("Command /%s failed: %v", command, err)
+		response = fmt.Sprintf(MsgError, tgbotapi.EscapeText(tgbotapi.ModeMarkdown, err.Error()))
+		slog.Error("Command failed", "command", command, "error", err)
 	}
 
 	b.sendMessage(message.Chat.ID, response)
@@ -149,47 +148,31 @@ func (b *Bot) sendMessage(chatID int64, text string) {
 	msg.ParseMode = tgbotapi.ModeMarkdown
 
 	if _, err := b.api.Send(msg); err != nil {
-		logger.Error("Failed to send message: %v", err)
+		slog.Error("Failed to send message", "chat_id", chatID, "error", err)
 	}
 }
 
 func (b *Bot) handleStart() string {
-	return `🏠 *Welcome to Home Assistant Telegram Bot!*
-
-I send power outage notifications and show outage statistics and schedules.
-
-Use /help to see available commands.`
+	return MsgStart
 }
 
 func (b *Bot) handleHelp() string {
-	return `📋 *Available Commands:*
-
-*General:*
-/status - Home Assistant status
-/stats [period] - Power statistics (today/week/month)
-/calendar [tomorrow] - View Yasno schedule (today or tomorrow)
-/chatid - Show your chat ID
-
-*Examples:*
-` + "`/stats week`" + `
-` + "`/calendar tomorrow`"
+	return MsgHelp
 }
 
 func (b *Bot) handleStatus(ctx context.Context) (string, error) {
-	err := b.haClient.CheckConnection(ctx)
-	if err != nil {
-		return "", fmt.Errorf("home assistant is not reachable: %w", err)
+	if err := b.haClient.CheckConnection(ctx); err != nil {
+		slog.Warn("Home Assistant is not reachable", "error", err)
+		return MsgStatusUnreachable, nil
 	}
 
-	return `✅ *Home Assistant Status*
-
-🔗 Connected: Yes`, nil
+	return MsgStatusOK, nil
 }
 
 func (b *Bot) handleStats(ctx context.Context, args string) (string, error) {
 	// Check if statistics are available (power monitoring may be disabled)
 	if b.statsDB == nil || b.statsRecorder == nil {
-		return "❌ Statistics not available. Please set WATCHED_ENTITY_ID in config.", nil
+		return MsgStatsUnavailable, nil
 	}
 
 	// Parse period argument
@@ -198,12 +181,8 @@ func (b *Bot) handleStats(ctx context.Context, args string) (string, error) {
 		period = "today"
 	}
 
-	// Get timezone from config
-	location, err := time.LoadLocation(b.config.Timezone)
-	if err != nil {
-		logger.Warn("Failed to load timezone %s, using UTC: %v", b.config.Timezone, err)
-		location = time.UTC
-	}
+	location := b.config.Location
+	var err error
 
 	// Query statistics
 	query := stats.NewQuery(b.statsDB, b.config.WatchedEntityID)
@@ -226,7 +205,7 @@ func (b *Bot) handleStats(ctx context.Context, args string) (string, error) {
 			return "", fmt.Errorf("не вдалось отримати статистику: %w", err)
 		}
 	default:
-		return fmt.Sprintf("❌ Невідомий період: %s\n\nВикористовуйте: today, week, month", period), nil
+		return fmt.Sprintf(MsgStatsUnknownArg, tgbotapi.EscapeText(tgbotapi.ModeMarkdown, period)), nil
 	}
 
 	// Get current state duration
@@ -239,54 +218,54 @@ func (b *Bot) handleStats(ctx context.Context, args string) (string, error) {
 	var periodName string
 	switch period {
 	case "today", "сьогодні":
-		periodName = "Сьогодні"
+		periodName = MsgStatsToday
 	case "week", "тиждень":
-		periodName = "За тиждень"
+		periodName = MsgStatsWeek
 	case "month", "місяць":
-		periodName = "За місяць"
+		periodName = MsgStatsMonth
 	}
 
-	response := fmt.Sprintf("📊 *Статистика: %s*\n\n", periodName)
+	response := fmt.Sprintf(MsgStatsTitle, periodName)
 
 	// Power on statistics
 	if periodStats.TotalOnSeconds > 0 {
-		response += fmt.Sprintf("⚡ *Світло було:* %s\n", stats.FormatDuration(periodStats.TotalOnSeconds))
+		response += fmt.Sprintf(MsgStatsOn, stats.FormatDuration(periodStats.TotalOnSeconds))
 		if periodStats.OnCount > 0 {
 			avgOn := periodStats.TotalOnSeconds / int64(periodStats.OnCount)
-			response += fmt.Sprintf("   Середня тривалість: %s (%d разів)\n", stats.FormatDuration(avgOn), periodStats.OnCount)
+			response += fmt.Sprintf(MsgStatsAverage, stats.FormatDuration(avgOn), periodStats.OnCount)
 		}
 	} else {
-		response += "⚡ *Світло було:* немає даних\n"
+		response += MsgStatsOnNoData
 	}
 
 	response += "\n"
 
 	// Power off statistics
 	if periodStats.TotalOffSeconds > 0 {
-		response += fmt.Sprintf("🔌 *Світла не було:* %s\n", stats.FormatDuration(periodStats.TotalOffSeconds))
+		response += fmt.Sprintf(MsgStatsOff, stats.FormatDuration(periodStats.TotalOffSeconds))
 		if periodStats.OffCount > 0 {
 			avgOff := periodStats.TotalOffSeconds / int64(periodStats.OffCount)
-			response += fmt.Sprintf("   Середня тривалість: %s (%d разів)\n", stats.FormatDuration(avgOff), periodStats.OffCount)
+			response += fmt.Sprintf(MsgStatsAverage, stats.FormatDuration(avgOff), periodStats.OffCount)
 		}
 	} else {
-		response += "🔌 *Світла не було:* немає даних\n"
+		response += MsgStatsOffNoData
 	}
 
 	// Current state
 	if currentState != "unknown" && currentDuration > 0 {
 		response += "\n"
 		stateIcon := "⚡"
-		stateName := "Світло є"
+		stateName := MsgStatsCurrentOn
 		if currentState == "off" {
 			stateIcon = "🔌"
-			stateName = "Світла немає"
+			stateName = MsgStatsCurrentOff
 		}
 		currentDurationSeconds := int64(currentDuration.Seconds())
 		response += fmt.Sprintf("%s *%s:* %s\n", stateIcon, stateName, stats.FormatDuration(currentDurationSeconds))
 	}
 
 	// Add usage instructions
-	response += "\n_Використання:_\n`/stats today` - за сьогодні\n`/stats week` - за тиждень\n`/stats month` - за місяць"
+	response += MsgStatsUsage
 
 	return response, nil
 }
@@ -294,37 +273,37 @@ func (b *Bot) handleStats(ctx context.Context, args string) (string, error) {
 func (b *Bot) handleCalendar(ctx context.Context, args string) (string, error) {
 	// Check if notification service is available
 	if b.notifService == nil {
-		return "❌ Notification service not available", nil
+		return MsgCalendarUnavailable, nil
 	}
 
 	// Check if calendar is configured
 	if b.config.YasnoCalendarID == "" {
-		return "❌ Yasno calendar not configured. Please set YASNO_CALENDAR_ID in config.", nil
+		return MsgCalendarNotConfigured, nil
 	}
 
 	// Parse arguments: /calendar or /calendar tomorrow
 	args = strings.ToLower(strings.TrimSpace(args))
 
-	location := b.notifService.GetLocation()
+	location := b.config.Location
 	var targetDate time.Time
 
 	switch args {
 	case "", "today", "сьогодні":
 		targetDate = time.Now().In(location)
 	case "tomorrow", "завтра":
-		targetDate = time.Now().In(location).Add(24 * time.Hour)
+		targetDate = time.Now().In(location).AddDate(0, 0, 1)
 	default:
-		return "❌ Невірний аргумент. Використовуйте:\n`/calendar` - графік на сьогодні\n`/calendar tomorrow` - графік на завтра", nil
+		return MsgCalendarUnknownArg, nil
 	}
 
 	// Format date range for the entire day
 	startOfDay := time.Date(targetDate.Year(), targetDate.Month(), targetDate.Day(), 0, 0, 0, 0, location)
-	endOfDay := startOfDay.Add(24 * time.Hour)
+	endOfDay := startOfDay.AddDate(0, 0, 1)
 
 	startDateTime := startOfDay.Format("2006-01-02T15:04:05")
 	endDateTime := endOfDay.Format("2006-01-02T15:04:05")
 
-	logger.Debug("Fetching calendar events: calendar=%s, start=%s, end=%s", b.config.YasnoCalendarID, startDateTime, endDateTime)
+	slog.Debug("Fetching calendar events", "calendar", b.config.YasnoCalendarID, "start", startDateTime, "end", endDateTime)
 
 	// Get calendar events
 	events, err := b.haClient.GetCalendarEvents(ctx, b.config.YasnoCalendarID, startDateTime, endDateTime)
@@ -332,12 +311,12 @@ func (b *Bot) handleCalendar(ctx context.Context, args string) (string, error) {
 		return "", fmt.Errorf("не вдалось отримати події календаря: %w", err)
 	}
 
-	logger.Debug("Retrieved %d events", len(events))
+	slog.Debug("Retrieved calendar events", "count", len(events))
 
 	// Extract group name from calendar entity ID
 	// Example: calendar.yasno_kiiv_2_1_planned_outages -> "група 2.1"
 	groupName := notifications.ExtractYasnoGroupFromCalendarID(b.config.YasnoCalendarID)
-	logger.Debug("Group name extracted from calendar ID '%s': %s", b.config.YasnoCalendarID, groupName)
+	slog.Debug("Yasno group extracted from calendar ID", "calendar", b.config.YasnoCalendarID, "group", groupName)
 
 	// Format using the same formatter as automatic notifications
 	response := b.notifService.FormatYasnoSchedule(events, targetDate, groupName)

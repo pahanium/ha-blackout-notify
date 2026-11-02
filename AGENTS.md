@@ -1,6 +1,6 @@
 # Agent Guidelines for Blackout Notify
 
-Home Assistant add-on in **Go 1.26** that watches power state through the HA WebSocket API and sends Telegram notifications about outages, restorations and Yasno outage schedules. Packaged as a multi-arch (amd64/aarch64/armv7) s6-overlay Docker image.
+Home Assistant add-on in **Go 1.26** that watches power state through the HA WebSocket API and sends Telegram notifications about outages, restorations and Yasno outage schedules. Packaged as a multi-arch (amd64/aarch64) s6-overlay Docker image.
 
 ## Commands
 
@@ -31,10 +31,9 @@ cmd/bot/main.go          → wiring, signal handling
 internal/config/         → env-var config
 internal/homeassistant/  → REST client, calendar.get_events, WebSocket client with auto-reconnect
 internal/watcher/        → reacts to HA state changes (power + schedule + Yasno sensors)
-internal/notifications/  → message formatting and sending; all Ukrainian strings in messages.go
+internal/notifications/  → message formatting and sending
 internal/stats/          → SQLite power_events table, /stats queries
 internal/bot/            → Telegram command handlers (read-only: /status, /stats, /calendar, /chatid)
-internal/logger/         → leveled logger (Debug/Info/Warn/Error/Fatal)
 ```
 
 - **Config path**: add-on options in `blackout-notify/config.yaml` → exported as env vars by `rootfs/etc/services.d/blackout-notify/run` (bashio) → `config.Load()`. A new option must be added to `config.yaml` (both `options` and `schema`), the `run` script, `internal/config/config.go`, and `.env.example`.
@@ -61,10 +60,10 @@ internal/logger/         → leveled logger (Debug/Info/Warn/Error/Fatal)
 
 ## Conventions
 
-- Code, comments, docs and commits in English; user-facing Telegram messages in Ukrainian (`internal/notifications/messages.go`).
+- Code, comments, docs and commits in English; all user-facing Telegram texts in Ukrainian, kept in `internal/notifications/messages.go` and `internal/bot/messages.go`. Escape user input and error text inserted into Markdown messages with `tgbotapi.EscapeText`.
 - Module path: `github.com/pahanium/ha-blackout-notify`. Import groups: stdlib, external, internal.
 - Wrap errors with context: `fmt.Errorf("failed to get state: %w", err)`; don't discard errors with `_`.
-- Log through `internal/logger`, not `log`/`fmt.Print`.
+- Log with `log/slog` (configured in `main.go`, level from `log_level`): short constant message plus key/value attrs, e.g. `slog.Error("Failed to send notification", "chat_id", id, "error", err)`. No printf-style messages.
 - Tests: standard `testing`, table-driven, `httptest` servers to mock HA; set env vars with `t.Setenv`.
 
 ## Branches and releases

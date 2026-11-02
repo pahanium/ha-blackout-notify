@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -11,7 +12,6 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/pahanium/ha-blackout-notify/internal/logger"
 )
 
 // WebSocket message types
@@ -114,7 +114,7 @@ func (c *WSClient) getWSURL() string {
 // Connect establishes WebSocket connection
 func (c *WSClient) Connect(ctx context.Context) error {
 	wsURL := c.getWSURL()
-	logger.Debug("Connecting to WebSocket: %s", wsURL)
+	slog.Debug("Connecting to WebSocket", "url", wsURL)
 
 	// Prepare headers for Supervisor authentication
 	header := http.Header{}
@@ -125,7 +125,7 @@ func (c *WSClient) Connect(ctx context.Context) error {
 	conn, resp, err := websocket.DefaultDialer.DialContext(ctx, wsURL, header)
 	if err != nil {
 		if resp != nil {
-			logger.Debug("WebSocket handshake response status: %d", resp.StatusCode)
+			slog.Debug("WebSocket handshake response", "status", resp.StatusCode)
 		}
 		return fmt.Errorf("failed to connect to WebSocket: %w", err)
 	}
@@ -178,7 +178,7 @@ func (c *WSClient) Connect(ctx context.Context) error {
 	c.connected = true
 	c.mu.Unlock()
 
-	logger.Info("WebSocket connected and authenticated")
+	slog.Info("WebSocket connected and authenticated")
 	return nil
 }
 
@@ -218,7 +218,7 @@ func (c *WSClient) SubscribeStateChanges(ctx context.Context) error {
 		return fmt.Errorf("subscription failed: %s", errMsg)
 	}
 
-	logger.Info("Subscribed to state_changed events")
+	slog.Info("Subscribed to state_changed events")
 	return nil
 }
 
@@ -309,7 +309,7 @@ func (c *WSClient) RunWithReconnect(ctx context.Context) error {
 
 		// Connect
 		if err := c.Connect(ctx); err != nil {
-			logger.Error("WebSocket connection failed: %v, retrying in %v", err, delay)
+			slog.Error("WebSocket connection failed, retrying", "error", err, "retry_in", delay)
 			time.Sleep(delay)
 			delay = min(delay*2, c.maxReconnect)
 			continue
@@ -320,14 +320,14 @@ func (c *WSClient) RunWithReconnect(ctx context.Context) error {
 
 		// Subscribe to events
 		if err := c.SubscribeStateChanges(ctx); err != nil {
-			logger.Error("Failed to subscribe: %v", err)
+			slog.Error("Failed to subscribe to events", "error", err)
 			c.Close()
 			continue
 		}
 
 		// Listen for events
 		if err := c.Listen(ctx); err != nil {
-			logger.Error("WebSocket listen error: %v, reconnecting...", err)
+			slog.Error("WebSocket listen error, reconnecting", "error", err)
 			c.Close()
 			continue
 		}

@@ -27,7 +27,7 @@ build: ## Build binary into blackout-notify/bin/
 run: ## Run locally with .env from repo root
 	cd $(SRC) && go run ./cmd/bot
 
-docker: ## Build production add-on image (ARCH=aarch64|amd64|armv7)
+docker: ## Build production add-on image (ARCH=aarch64|amd64)
 	./scripts/docker-build.sh $(ARCH)
 
 dev-up: ## Run in Docker with .env (stats DB kept in .data/)

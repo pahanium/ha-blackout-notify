@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.0] - 2026-11-02
+
+### Removed
+- ⚠️ **armv7 (32-bit ARM)**: No longer supported; Home Assistant stopped publishing armv7 base images. Supported: amd64, aarch64
+
+### Changed
+- 🇺🇦 **Bot replies in Ukrainian**: All command responses (`/start`, `/help`, `/status`, `/stats`, `/calendar`, errors) are now in Ukrainian
+- 🕐 **Timezone loaded once**: An invalid `timezone` now stops the add-on with a clear error instead of silently using UTC; timezone data is built into the binary
+- 📝 **Structured logs**: Logs use Go's `log/slog`, e.g. `level=INFO msg="Power state changed" from=on to=off`
+
+### Fixed
+- 🐛 **Unknown command reply not delivered**: Commands with `_` (like the removed `/turn_on`) broke Markdown, so Telegram rejected the reply
+- 🐛 **"Tomorrow" on DST change days**: `/calendar tomorrow` and the tomorrow schedule message now use calendar days instead of +24h
+
 ## [0.6.1] - 2026-10-31
 
 ### Fixed

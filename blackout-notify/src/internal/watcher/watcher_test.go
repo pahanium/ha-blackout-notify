@@ -22,7 +22,7 @@ type fakeNotifier struct {
 	yasnoDates    []time.Time
 	emergency     int
 	scheduled     map[string]*time.Time
-	loc           *time.Location
+	loc           *time.Location // mirrors config.Location for assertions
 }
 
 func (f *fakeNotifier) NotifyPowerOn(ctx context.Context, d int64) error {
@@ -73,8 +73,6 @@ func (f *fakeNotifier) GetYasnoCalendarEvents(ctx context.Context, calendarID st
 	return nil, nil
 }
 
-func (f *fakeNotifier) GetLocation() *time.Location { return f.loc }
-
 func (f *fakeNotifier) counts() (on, off int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -121,6 +119,8 @@ func newTestWatcher(t *testing.T, initial PowerState) (*Watcher, *fakeNotifier, 
 		YasnoTodaySensorID:    "sensor.yasno_today",
 		YasnoTomorrowSensorID: "sensor.yasno_tomorrow",
 		YasnoCalendarID:       "calendar.yasno_kiiv_2_1_planned_outages",
+		Timezone:              "Europe/Kyiv",
+		Location:              kyiv,
 	}
 	w := NewWatcher(cfg, nil, nil, n, r)
 	w.debounceTime = testDebounce

@@ -53,6 +53,11 @@ func newTestService(t *testing.T, states map[string]string) (*Service, *fakeSend
 		PauseEntityID:       "input_boolean.pause",
 		Timezone:            "Europe/Kyiv",
 	}
+	loc, err := time.LoadLocation(cfg.Timezone)
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	cfg.Location = loc
 	if states == nil {
 		states = map[string]string{}
 	}
