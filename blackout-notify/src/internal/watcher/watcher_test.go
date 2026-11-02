@@ -90,14 +90,25 @@ func (f *fakeNotifier) counts() (on, off int) {
 
 // fakeStates serves Yasno status sensor states
 type fakeStates struct {
-	mu     sync.Mutex
-	states map[string]string
+	mu          sync.Mutex
+	states      map[string]string
+	lastChanged map[string]string
 }
 
 func (f *fakeStates) GetState(ctx context.Context, entityID string) (*homeassistant.Entity, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return &homeassistant.Entity{EntityID: entityID, State: f.states[entityID]}, nil
+	return &homeassistant.Entity{EntityID: entityID, State: f.states[entityID], LastChanged: f.lastChanged[entityID]}, nil
+}
+
+func (f *fakeStates) setChanged(entityID, state string, changed time.Time) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.states[entityID] = state
+	if f.lastChanged == nil {
+		f.lastChanged = map[string]string{}
+	}
+	f.lastChanged[entityID] = changed.UTC().Format(time.RFC3339Nano)
 }
 
 func (f *fakeStates) set(entityID, state string) {

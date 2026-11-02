@@ -209,7 +209,7 @@ func (w *Watcher) reconcileTomorrow(ctx context.Context, now time.Time) {
 	if w.config.YasnoCalendarID == "" || w.config.YasnoTomorrowSensorID == "" {
 		return
 	}
-	if w.readStatus(ctx, w.config.YasnoTomorrowSensorID) != notifications.YasnoStatusScheduleApplies {
+	if w.readTomorrowStatus(ctx, now) != notifications.YasnoStatusScheduleApplies {
 		return
 	}
 
@@ -337,6 +337,35 @@ func (w *Watcher) readStatus(ctx context.Context, sensorID string) string {
 	switch entity.State {
 	case "", "unknown", "unavailable":
 		return ""
+	}
+	return entity.State
+}
+
+// readTomorrowStatus returns the Yasno tomorrow status, or "" if it was last changed before
+// today's midnight: until Yasno refreshes after midnight the sensor still describes the day that
+// has just become today, and tomorrow's calendar is empty
+func (w *Watcher) readTomorrowStatus(ctx context.Context, now time.Time) string {
+	sensorID := w.config.YasnoTomorrowSensorID
+	if sensorID == "" || w.haClient == nil {
+		return ""
+	}
+	entity, err := w.haClient.GetState(ctx, sensorID)
+	if err != nil {
+		slog.Warn("Failed to read Yasno status", "sensor", sensorID, "error", err)
+		return ""
+	}
+	switch entity.State {
+	case "", "unknown", "unavailable":
+		return ""
+	}
+	if changed, err := time.Parse(time.RFC3339Nano, entity.LastChanged); err == nil {
+		day := now.In(w.config.Location)
+		midnight := time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, w.config.Location)
+		if changed.Before(midnight) {
+			slog.Debug("Yasno tomorrow status is from yesterday, waiting for refresh",
+				"state", entity.State, "last_changed", entity.LastChanged)
+			return ""
+		}
 	}
 	return entity.State
 }

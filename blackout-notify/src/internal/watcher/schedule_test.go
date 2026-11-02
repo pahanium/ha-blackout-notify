@@ -99,6 +99,30 @@ func TestReconcile_TomorrowWaitingNotSent(t *testing.T) {
 	}
 }
 
+func TestReconcile_TomorrowStatusFromYesterdayNotSent(t *testing.T) {
+	w, env := newScheduleWatcher(t, PowerStateOn)
+	today, _, todayKey, tomorrowKey := scheduleDays(env)
+	env.log.sent[todayKey] = notifications.ScheduleFingerprint(nil)
+	env.states.set("sensor.yasno_today", notifications.YasnoStatusScheduleApplies)
+	// Just after midnight: still yesterday's "tomorrow applies", tomorrow's calendar is empty
+	midnight := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, env.notifier.loc)
+	env.states.setChanged("sensor.yasno_tomorrow", notifications.YasnoStatusScheduleApplies, midnight.Add(-2*time.Hour))
+
+	reconcile(w)
+
+	if schedules, _, _, _ := env.notifier.snapshot(); len(schedules) != 0 {
+		t.Errorf("stale tomorrow status: want nothing, got %v", schedules)
+	}
+
+	// Yasno publishes tomorrow's schedule later today
+	env.states.setChanged("sensor.yasno_tomorrow", notifications.YasnoStatusScheduleApplies, midnight.Add(time.Minute))
+	reconcile(w)
+
+	if schedules, _, _, _ := env.notifier.snapshot(); len(schedules) != 1 || schedules[0] != tomorrowKey {
+		t.Errorf("fresh tomorrow status: want [%s], got %v", tomorrowKey, schedules)
+	}
+}
+
 func TestReconcile_EmergencyStartOnceThenEndedWithSchedule(t *testing.T) {
 	w, env := newScheduleWatcher(t, PowerStateOn)
 	_, _, todayKey, _ := scheduleDays(env)
