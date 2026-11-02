@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.1] - 2026-11-02
+
+### Fixed
+- 📅 **Previous day's outage in the schedule**: An outage ending exactly at midnight (e.g. 18:30 - 00:00) was listed as the first outage of the next day's schedule and in `/calendar`. Only outages that overlap the day are shown now. Tomorrow's schedule already sent with this extra line will be sent once more, corrected
+
 ## [0.8.0] - 2026-11-02
 
 ### Changed

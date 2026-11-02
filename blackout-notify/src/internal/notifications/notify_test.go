@@ -171,3 +171,34 @@ func TestFormatYasnoSchedule_OnlyDefiniteOutages(t *testing.T) {
 		t.Errorf("group name missing:\n%s", text)
 	}
 }
+
+func TestGetYasnoCalendarEvents_OnlyEventsOfThatDay(t *testing.T) {
+	svc, _ := newTestService(t, nil)
+	// HA also returns events touching the range boundary
+	svc.haClient = &fakeHA{events: []homeassistant.CalendarEvent{
+		{Start: "2026-11-02T18:30:00+02:00", End: "2026-11-03T00:00:00+02:00", Description: "Definite"},
+		{Start: "2026-11-03T06:00:00+02:00", End: "2026-11-03T10:00:00+02:00", Description: "Definite"},
+		{Start: "2026-11-03T23:00:00+02:00", End: "2026-11-04T00:00:00+02:00", Description: "Definite"},
+		{Start: "2026-11-04T00:00:00+02:00", End: "2026-11-04T03:30:00+02:00", Description: "Definite"},
+		{Start: "2026-11-02T22:00:00+02:00", End: "2026-11-03T01:00:00+02:00", Description: "Definite"},
+	}}
+
+	events, err := svc.GetYasnoCalendarEvents(context.Background(), "calendar.yasno",
+		time.Date(2026, 11, 3, 12, 0, 0, 0, svc.location))
+	if err != nil {
+		t.Fatalf("GetYasnoCalendarEvents: %v", err)
+	}
+
+	var got []string
+	for _, e := range events {
+		got = append(got, e.Start+"/"+e.End)
+	}
+	want := []string{
+		"2026-11-03T06:00:00+02:00/2026-11-03T10:00:00+02:00",
+		"2026-11-03T23:00:00+02:00/2026-11-04T00:00:00+02:00",
+		"2026-11-02T22:00:00+02:00/2026-11-03T01:00:00+02:00", // crosses midnight into the day
+	}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("events = %v, want %v", got, want)
+	}
+}
