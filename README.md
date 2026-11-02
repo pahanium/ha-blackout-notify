@@ -184,8 +184,8 @@ ha-blackout-notify/
 │           ├── config/           # Configuration
 │           ├── homeassistant/    # HA API (REST + WebSocket)
 │           ├── notifications/    # Notification service
-│           ├── watcher/          # Power state monitoring
-│           └── logger/           # Logging
+│           ├── stats/            # SQLite power statistics
+│           └── watcher/          # Power state monitoring
 ├── scripts/
 │   └── docker-build.sh           # Production image build (used by make docker)
 ├── Makefile                      # Dev commands (make help)

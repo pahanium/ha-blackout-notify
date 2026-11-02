@@ -34,7 +34,6 @@ internal/watcher/        → reacts to HA state changes (power + schedule + Yasn
 internal/notifications/  → message formatting and sending
 internal/stats/          → SQLite power_events table, /stats queries
 internal/bot/            → Telegram command handlers (read-only: /status, /stats, /calendar, /chatid)
-internal/logger/         → leveled logger (Debug/Info/Warn/Error/Fatal)
 ```
 
 - **Config path**: add-on options in `blackout-notify/config.yaml` → exported as env vars by `rootfs/etc/services.d/blackout-notify/run` (bashio) → `config.Load()`. A new option must be added to `config.yaml` (both `options` and `schema`), the `run` script, `internal/config/config.go`, and `.env.example`.
@@ -64,7 +63,7 @@ internal/logger/         → leveled logger (Debug/Info/Warn/Error/Fatal)
 - Code, comments, docs and commits in English; all user-facing Telegram texts in Ukrainian, kept in `internal/notifications/messages.go` and `internal/bot/messages.go`. Escape user input and error text inserted into Markdown messages with `tgbotapi.EscapeText`.
 - Module path: `github.com/pahanium/ha-blackout-notify`. Import groups: stdlib, external, internal.
 - Wrap errors with context: `fmt.Errorf("failed to get state: %w", err)`; don't discard errors with `_`.
-- Log through `internal/logger`, not `log`/`fmt.Print`.
+- Log with `log/slog` (configured in `main.go`, level from `log_level`): short constant message plus key/value attrs, e.g. `slog.Error("Failed to send notification", "chat_id", id, "error", err)`. No printf-style messages.
 - Tests: standard `testing`, table-driven, `httptest` servers to mock HA; set env vars with `t.Setenv`.
 
 ## Branches and releases

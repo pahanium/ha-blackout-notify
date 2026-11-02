@@ -3,13 +3,13 @@ package bot
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/pahanium/ha-blackout-notify/internal/config"
 	"github.com/pahanium/ha-blackout-notify/internal/homeassistant"
-	"github.com/pahanium/ha-blackout-notify/internal/logger"
 	"github.com/pahanium/ha-blackout-notify/internal/notifications"
 	"github.com/pahanium/ha-blackout-notify/internal/stats"
 )
@@ -37,7 +37,7 @@ func New(cfg *config.Config, haClient *homeassistant.Client) (*Bot, error) {
 		return nil, fmt.Errorf("failed to create bot: %w", err)
 	}
 
-	logger.Info("Authorized on account %s", api.Self.UserName)
+	slog.Info("Authorized on Telegram", "account", api.Self.UserName)
 
 	return &Bot{
 		api:      api,
@@ -83,7 +83,7 @@ func (b *Bot) Start(ctx context.Context) error {
 
 			// Check if chat ID is allowed
 			if !b.config.IsChatAllowed(update.Message.Chat.ID) {
-				logger.Warn("Unauthorized access attempt from chat ID: %d", update.Message.Chat.ID)
+				slog.Warn("Unauthorized access attempt", "chat_id", update.Message.Chat.ID)
 				if len(b.config.AllowedChatIDs) == 0 {
 					b.sendMessage(update.Message.Chat.ID, MsgCommandsDisabled)
 				} else {
@@ -113,7 +113,7 @@ func (b *Bot) handleMessage(ctx context.Context, message *tgbotapi.Message) {
 	command := message.Command()
 	args := message.CommandArguments()
 
-	logger.Debug("Received command: /%s %s from chat %d", command, args, message.Chat.ID)
+	slog.Debug("Received command", "command", command, "args", args, "chat_id", message.Chat.ID)
 
 	var response string
 	var err error
@@ -137,7 +137,7 @@ func (b *Bot) handleMessage(ctx context.Context, message *tgbotapi.Message) {
 
 	if err != nil {
 		response = fmt.Sprintf(MsgError, tgbotapi.EscapeText(tgbotapi.ModeMarkdown, err.Error()))
-		logger.Error("Command /%s failed: %v", command, err)
+		slog.Error("Command failed", "command", command, "error", err)
 	}
 
 	b.sendMessage(message.Chat.ID, response)
@@ -148,7 +148,7 @@ func (b *Bot) sendMessage(chatID int64, text string) {
 	msg.ParseMode = tgbotapi.ModeMarkdown
 
 	if _, err := b.api.Send(msg); err != nil {
-		logger.Error("Failed to send message: %v", err)
+		slog.Error("Failed to send message", "chat_id", chatID, "error", err)
 	}
 }
 
@@ -162,7 +162,7 @@ func (b *Bot) handleHelp() string {
 
 func (b *Bot) handleStatus(ctx context.Context) (string, error) {
 	if err := b.haClient.CheckConnection(ctx); err != nil {
-		logger.Warn("Home Assistant is not reachable: %v", err)
+		slog.Warn("Home Assistant is not reachable", "error", err)
 		return MsgStatusUnreachable, nil
 	}
 
@@ -303,7 +303,7 @@ func (b *Bot) handleCalendar(ctx context.Context, args string) (string, error) {
 	startDateTime := startOfDay.Format("2006-01-02T15:04:05")
 	endDateTime := endOfDay.Format("2006-01-02T15:04:05")
 
-	logger.Debug("Fetching calendar events: calendar=%s, start=%s, end=%s", b.config.YasnoCalendarID, startDateTime, endDateTime)
+	slog.Debug("Fetching calendar events", "calendar", b.config.YasnoCalendarID, "start", startDateTime, "end", endDateTime)
 
 	// Get calendar events
 	events, err := b.haClient.GetCalendarEvents(ctx, b.config.YasnoCalendarID, startDateTime, endDateTime)
@@ -311,12 +311,12 @@ func (b *Bot) handleCalendar(ctx context.Context, args string) (string, error) {
 		return "", fmt.Errorf("не вдалось отримати події календаря: %w", err)
 	}
 
-	logger.Debug("Retrieved %d events", len(events))
+	slog.Debug("Retrieved calendar events", "count", len(events))
 
 	// Extract group name from calendar entity ID
 	// Example: calendar.yasno_kiiv_2_1_planned_outages -> "група 2.1"
 	groupName := notifications.ExtractYasnoGroupFromCalendarID(b.config.YasnoCalendarID)
-	logger.Debug("Group name extracted from calendar ID '%s': %s", b.config.YasnoCalendarID, groupName)
+	slog.Debug("Yasno group extracted from calendar ID", "calendar", b.config.YasnoCalendarID, "group", groupName)
 
 	// Format using the same formatter as automatic notifications
 	response := b.notifService.FormatYasnoSchedule(events, targetDate, groupName)

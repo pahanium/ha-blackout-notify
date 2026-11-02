@@ -3,13 +3,13 @@ package notifications
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/pahanium/ha-blackout-notify/internal/config"
 	"github.com/pahanium/ha-blackout-notify/internal/homeassistant"
-	"github.com/pahanium/ha-blackout-notify/internal/logger"
 )
 
 // Sender sends Telegram messages (implemented by *tgbotapi.BotAPI)
@@ -47,7 +47,7 @@ func NewService(bot Sender, cfg *config.Config, haClient HAReader) (*Service, er
 // previousOffDurationSec - how long power was off in seconds (0 if unknown)
 func (s *Service) NotifyPowerOn(ctx context.Context, previousOffDurationSec int64) error {
 	if s.isPaused(ctx) {
-		logger.Debug("Notifications paused, skipping power on notification")
+		slog.Debug("Notifications paused, skipping power on notification")
 		return nil
 	}
 
@@ -67,7 +67,7 @@ func (s *Service) NotifyPowerOn(ctx context.Context, previousOffDurationSec int6
 	if s.config.NextOffSensorID != "" {
 		nextOff, err := s.getScheduledTime(ctx, s.config.NextOffSensorID)
 		if err != nil {
-			logger.Warn("Failed to get next off time: %v", err)
+			slog.Warn("Failed to get next off time", "error", err)
 		} else if nextOff != nil {
 			duration := nextOff.Sub(now)
 			fmt.Fprintf(&sb, "\n\n%s\n%s",
@@ -83,7 +83,7 @@ func (s *Service) NotifyPowerOn(ctx context.Context, previousOffDurationSec int6
 // previousOnDurationSec - how long power was on in seconds (0 if unknown)
 func (s *Service) NotifyPowerOff(ctx context.Context, previousOnDurationSec int64) error {
 	if s.isPaused(ctx) {
-		logger.Debug("Notifications paused, skipping power off notification")
+		slog.Debug("Notifications paused, skipping power off notification")
 		return nil
 	}
 
@@ -103,7 +103,7 @@ func (s *Service) NotifyPowerOff(ctx context.Context, previousOnDurationSec int6
 	if s.config.NextOnSensorID != "" {
 		nextOn, err := s.getScheduledTime(ctx, s.config.NextOnSensorID)
 		if err != nil {
-			logger.Warn("Failed to get next on time: %v", err)
+			slog.Warn("Failed to get next on time", "error", err)
 		} else if nextOn != nil {
 			duration := nextOn.Sub(now)
 			fmt.Fprintf(&sb, "\n\n%s\n%s",
@@ -183,7 +183,7 @@ func (s *Service) isPaused(ctx context.Context) bool {
 
 	entity, err := s.haClient.GetState(ctx, s.config.PauseEntityID)
 	if err != nil {
-		logger.Debug("Failed to check pause state: %v", err)
+		slog.Debug("Failed to check pause state", "error", err)
 		return false
 	}
 
@@ -199,10 +199,10 @@ func (s *Service) sendToAllChats(text string) error {
 		msg.ParseMode = tgbotapi.ModeMarkdown
 
 		if _, err := s.bot.Send(msg); err != nil {
-			logger.Error("Failed to send notification to chat %d: %v", chatID, err)
+			slog.Error("Failed to send notification", "chat_id", chatID, "error", err)
 			lastErr = err
 		} else {
-			logger.Debug("Sent notification to chat %d", chatID)
+			slog.Debug("Sent notification", "chat_id", chatID)
 		}
 	}
 
@@ -218,7 +218,7 @@ func (s *Service) SendCustomMessage(text string) error {
 // scheduleType: "on" for next power on, "off" for next power off
 func (s *Service) NotifyScheduleChanged(ctx context.Context, scheduleType string, oldTime, newTime *time.Time) error {
 	if s.isPaused(ctx) {
-		logger.Debug("Notifications paused, skipping schedule change notification")
+		slog.Debug("Notifications paused, skipping schedule change notification")
 		return nil
 	}
 
@@ -284,7 +284,7 @@ func formatDuration(d time.Duration) string {
 // NotifyYasnoScheduleTomorrow sends notification about tomorrow's Yasno schedule
 func (s *Service) NotifyYasnoScheduleTomorrow(ctx context.Context, events []homeassistant.CalendarEvent, groupName string) error {
 	if s.isPaused(ctx) {
-		logger.Debug("Notifications paused, skipping Yasno schedule notification")
+		slog.Debug("Notifications paused, skipping Yasno schedule notification")
 		return nil
 	}
 
@@ -320,12 +320,12 @@ func (s *Service) NotifyYasnoScheduleTomorrow(ctx context.Context, events []home
 		for _, outage := range outages {
 			startTime, err := time.Parse(time.RFC3339, outage.Start)
 			if err != nil {
-				logger.Warn("Failed to parse outage start time %s: %v", outage.Start, err)
+				slog.Warn("Failed to parse outage start time", "value", outage.Start, "error", err)
 				continue
 			}
 			endTime, err := time.Parse(time.RFC3339, outage.End)
 			if err != nil {
-				logger.Warn("Failed to parse outage end time %s: %v", outage.End, err)
+				slog.Warn("Failed to parse outage end time", "value", outage.End, "error", err)
 				continue
 			}
 
@@ -344,7 +344,7 @@ func (s *Service) NotifyYasnoScheduleTomorrow(ctx context.Context, events []home
 // NotifyYasnoEmergencyShutdown sends notification about emergency shutdowns
 func (s *Service) NotifyYasnoEmergencyShutdown(ctx context.Context) error {
 	if s.isPaused(ctx) {
-		logger.Debug("Notifications paused, skipping Yasno emergency notification")
+		slog.Debug("Notifications paused, skipping Yasno emergency notification")
 		return nil
 	}
 
@@ -354,7 +354,7 @@ func (s *Service) NotifyYasnoEmergencyShutdown(ctx context.Context) error {
 // NotifyYasnoScheduleRestored sends notification when schedule is restored after emergency
 func (s *Service) NotifyYasnoScheduleRestored(ctx context.Context) error {
 	if s.isPaused(ctx) {
-		logger.Debug("Notifications paused, skipping Yasno schedule restored notification")
+		slog.Debug("Notifications paused, skipping Yasno schedule restored notification")
 		return nil
 	}
 
@@ -391,13 +391,13 @@ func (s *Service) sendToAllChatsWithQuietHours(ctx context.Context, text string)
 		msg.DisableNotification = disableNotification
 
 		if _, err := s.bot.Send(msg); err != nil {
-			logger.Error("Failed to send notification to chat %d: %v", chatID, err)
+			slog.Error("Failed to send notification", "chat_id", chatID, "error", err)
 			lastErr = err
 		} else {
 			if disableNotification {
-				logger.Debug("Sent quiet notification to chat %d (hour: %d)", chatID, hour)
+				slog.Debug("Sent silent notification (quiet hours)", "chat_id", chatID, "hour", hour)
 			} else {
-				logger.Debug("Sent notification to chat %d", chatID)
+				slog.Debug("Sent notification", "chat_id", chatID)
 			}
 		}
 	}
@@ -471,12 +471,12 @@ func (s *Service) FormatYasnoSchedule(events []homeassistant.CalendarEvent, date
 		for _, outage := range outages {
 			startTime, err := time.Parse(time.RFC3339, outage.Start)
 			if err != nil {
-				logger.Warn("Failed to parse outage start time %s: %v", outage.Start, err)
+				slog.Warn("Failed to parse outage start time", "value", outage.Start, "error", err)
 				continue
 			}
 			endTime, err := time.Parse(time.RFC3339, outage.End)
 			if err != nil {
-				logger.Warn("Failed to parse outage end time %s: %v", outage.End, err)
+				slog.Warn("Failed to parse outage end time", "value", outage.End, "error", err)
 				continue
 			}
 
