@@ -219,3 +219,36 @@ func TestIsYasnoMonitoringEnabled(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadTimezone(t *testing.T) {
+	tests := []struct {
+		name    string
+		env     string
+		want    string
+		wantErr bool
+	}{
+		{name: "default", env: "", want: "Europe/Kyiv"},
+		{name: "custom", env: "Europe/Warsaw", want: "Europe/Warsaw"},
+		{name: "invalid", env: "Mars/Olympus", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("TIMEZONE", tt.env)
+
+			cfg, err := Load()
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error for invalid timezone")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if cfg.Location == nil || cfg.Location.String() != tt.want {
+				t.Errorf("Location = %v, want %s", cfg.Location, tt.want)
+			}
+		})
+	}
+}

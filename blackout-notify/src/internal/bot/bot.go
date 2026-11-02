@@ -17,7 +17,6 @@ import (
 // NotificationService interface for accessing notification formatting
 type NotificationService interface {
 	FormatYasnoSchedule(events []homeassistant.CalendarEvent, date time.Time, groupName string) string
-	GetLocation() *time.Location
 }
 
 // Bot represents a Telegram bot
@@ -198,12 +197,8 @@ func (b *Bot) handleStats(ctx context.Context, args string) (string, error) {
 		period = "today"
 	}
 
-	// Get timezone from config
-	location, err := time.LoadLocation(b.config.Timezone)
-	if err != nil {
-		logger.Warn("Failed to load timezone %s, using UTC: %v", b.config.Timezone, err)
-		location = time.UTC
-	}
+	location := b.config.Location
+	var err error
 
 	// Query statistics
 	query := stats.NewQuery(b.statsDB, b.config.WatchedEntityID)
@@ -305,14 +300,14 @@ func (b *Bot) handleCalendar(ctx context.Context, args string) (string, error) {
 	// Parse arguments: /calendar or /calendar tomorrow
 	args = strings.ToLower(strings.TrimSpace(args))
 
-	location := b.notifService.GetLocation()
+	location := b.config.Location
 	var targetDate time.Time
 
 	switch args {
 	case "", "today", "сьогодні":
 		targetDate = time.Now().In(location)
 	case "tomorrow", "завтра":
-		targetDate = time.Now().In(location).Add(24 * time.Hour)
+		targetDate = time.Now().In(location).AddDate(0, 0, 1)
 	default:
 		return "❌ Невірний аргумент. Використовуйте:\n`/calendar` - графік на сьогодні\n`/calendar tomorrow` - графік на завтра", nil
 	}

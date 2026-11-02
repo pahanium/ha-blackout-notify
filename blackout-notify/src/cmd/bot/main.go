@@ -6,6 +6,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	_ "time/tzdata" // embed timezone database so TIMEZONE works without OS tzdata
 
 	"github.com/joho/godotenv"
 	"github.com/pahanium/ha-blackout-notify/internal/bot"

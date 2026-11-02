@@ -4,12 +4,13 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pahanium/ha-blackout-notify/internal/config"
 )
 
 func TestHandleStatsWithoutStatsProvider(t *testing.T) {
-	b := &Bot{config: &config.Config{Timezone: "Europe/Kyiv"}}
+	b := &Bot{config: &config.Config{Timezone: "Europe/Kyiv", Location: time.UTC}}
 
 	response, err := b.handleStats(context.Background(), "")
 	if err != nil {

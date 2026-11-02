@@ -1,9 +1,11 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Config holds all application settings
@@ -34,8 +36,9 @@ type Config struct {
 	YasnoTomorrowSensorID string // Entity ID of Yasno tomorrow status sensor
 	YasnoCalendarID       string // Entity ID of Yasno calendar for schedule events
 
-	// Timezone for formatting
+	// Timezone name and its location, loaded once in Load()
 	Timezone string
+	Location *time.Location
 }
 
 const (
@@ -67,6 +70,12 @@ func Load() (*Config, error) {
 
 		Timezone: getEnvOrDefault("TIMEZONE", "Europe/Kyiv"),
 	}
+
+	loc, err := time.LoadLocation(cfg.Timezone)
+	if err != nil {
+		return nil, fmt.Errorf("invalid timezone %q: %w", cfg.Timezone, err)
+	}
+	cfg.Location = loc
 
 	// Parse allowed chat IDs
 	chatIDsStr := os.Getenv("ALLOWED_CHAT_IDS")

@@ -34,17 +34,11 @@ type Service struct {
 
 // NewService creates a new notification service
 func NewService(bot Sender, cfg *config.Config, haClient HAReader) (*Service, error) {
-	loc, err := time.LoadLocation(cfg.Timezone)
-	if err != nil {
-		logger.Warn("Failed to load timezone %s, using UTC: %v", cfg.Timezone, err)
-		loc = time.UTC
-	}
-
 	return &Service{
 		bot:      bot,
 		config:   cfg,
 		haClient: haClient,
-		location: loc,
+		location: cfg.Location,
 		now:      time.Now,
 	}, nil
 }
@@ -294,7 +288,7 @@ func (s *Service) NotifyYasnoScheduleTomorrow(ctx context.Context, events []home
 		return nil
 	}
 
-	tomorrow := time.Now().In(s.location).Add(24 * time.Hour)
+	tomorrow := time.Now().In(s.location).AddDate(0, 0, 1)
 	dateStr := formatYasnoDate(tomorrow, s.location)
 
 	// Add group name if available
@@ -496,11 +490,6 @@ func (s *Service) FormatYasnoSchedule(events []homeassistant.CalendarEvent, date
 	}
 
 	return sb.String()
-}
-
-// GetLocation returns the service's timezone location
-func (s *Service) GetLocation() *time.Location {
-	return s.location
 }
 
 // ExtractYasnoGroupFromCalendarID extracts group number from calendar entity ID

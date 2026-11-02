@@ -41,7 +41,6 @@ type Notifier interface {
 	NotifyYasnoEmergencyShutdown(ctx context.Context) error
 	GetScheduledTime(ctx context.Context, sensorID string) (*time.Time, error)
 	GetYasnoCalendarEvents(ctx context.Context, calendarID string, date time.Time) ([]homeassistant.CalendarEvent, error)
-	GetLocation() *time.Location
 }
 
 // StateRecorder persists power state changes (implemented by stats.Recorder)
@@ -400,10 +399,7 @@ func (w *Watcher) handleScheduleChange(ctx context.Context, scheduleType string,
 	// Suppress notification if new scheduled time is for a different day (not today)
 	// This prevents spam when evening schedule updates reflect tomorrow's schedule
 	if shouldNotify && newTime != nil {
-		loc := w.notifSvc.GetLocation()
-		if loc == nil {
-			loc = time.Local
-		}
+		loc := w.config.Location
 		now := time.Now()
 		if !sameDay(*newTime, now, loc) {
 			logger.Debug("Suppressing schedule notification: new time %s is for %s (not today %s)",
@@ -593,11 +589,7 @@ func (w *Watcher) handleYasnoTomorrowChange(ctx context.Context, oldState, newSt
 		logger.Info("Yasno: Tomorrow schedule available")
 
 		// Get calendar events for tomorrow in the configured timezone
-		loc := w.notifSvc.GetLocation()
-		if loc == nil {
-			loc = time.Local
-		}
-		tomorrow := time.Now().In(loc).AddDate(0, 0, 1)
+		tomorrow := time.Now().In(w.config.Location).AddDate(0, 0, 1)
 		events, err := w.notifSvc.GetYasnoCalendarEvents(ctx, w.config.YasnoCalendarID, tomorrow)
 		if err != nil {
 			logger.Error("Failed to get Yasno calendar events: %v", err)
