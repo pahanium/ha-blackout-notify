@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.3] - 2026-11-03
+
+### Fixed
+- 📅 **"No outages" for tomorrow at midnight**: Right after midnight Yasno still reports yesterday's "tomorrow" status until it refreshes, while tomorrow's calendar is empty, so "Відключень не повинно бути" was sent for a day without a published schedule. A tomorrow status that hasn't changed since before midnight is now ignored
+
 ## [0.8.2] - 2026-11-02
 
 ### Fixed
