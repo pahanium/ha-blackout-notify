@@ -17,6 +17,7 @@ import (
 // NotificationService interface for accessing notification formatting
 type NotificationService interface {
 	FormatYasnoSchedule(events []homeassistant.CalendarEvent, date time.Time, groupName string) string
+	GetYasnoCalendarEvents(ctx context.Context, calendarID string, date time.Time) ([]homeassistant.CalendarEvent, error)
 }
 
 // Bot represents a Telegram bot
@@ -296,17 +297,10 @@ func (b *Bot) handleCalendar(ctx context.Context, args string) (string, error) {
 		return MsgCalendarUnknownArg, nil
 	}
 
-	// Format date range for the entire day
-	startOfDay := time.Date(targetDate.Year(), targetDate.Month(), targetDate.Day(), 0, 0, 0, 0, location)
-	endOfDay := startOfDay.AddDate(0, 0, 1)
+	slog.Debug("Fetching calendar events", "calendar", b.config.YasnoCalendarID, "date", targetDate.Format("2006-01-02"))
 
-	startDateTime := startOfDay.Format("2006-01-02T15:04:05")
-	endDateTime := endOfDay.Format("2006-01-02T15:04:05")
-
-	slog.Debug("Fetching calendar events", "calendar", b.config.YasnoCalendarID, "start", startDateTime, "end", endDateTime)
-
-	// Get calendar events
-	events, err := b.haClient.GetCalendarEvents(ctx, b.config.YasnoCalendarID, startDateTime, endDateTime)
+	// Same day filtering as automatic notifications
+	events, err := b.notifService.GetYasnoCalendarEvents(ctx, b.config.YasnoCalendarID, targetDate)
 	if err != nil {
 		return "", fmt.Errorf("не вдалось отримати події календаря: %w", err)
 	}

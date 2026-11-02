@@ -254,18 +254,41 @@ func (s *Service) NotifyYasnoEmergencyShutdown(ctx context.Context) error {
 	return s.sendToAllChats(MsgYasnoEmergencyShutdown)
 }
 
-// GetYasnoCalendarEvents retrieves calendar events for a specific date
+// GetYasnoCalendarEvents retrieves calendar events that overlap the calendar day of date
 func (s *Service) GetYasnoCalendarEvents(ctx context.Context, calendarID string, date time.Time) ([]homeassistant.CalendarEvent, error) {
-	// Format date range for the entire day
-	startDateTime := date.Format("2006-01-02") + " 00:00:00"
-	endDateTime := date.Format("2006-01-02") + " 23:59:59"
+	date = date.In(s.location)
+	dayStart := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, s.location)
+	dayEnd := dayStart.AddDate(0, 0, 1)
 
-	events, err := s.haClient.GetCalendarEvents(ctx, calendarID, startDateTime, endDateTime)
+	events, err := s.haClient.GetCalendarEvents(ctx, calendarID,
+		dayStart.Format("2006-01-02 15:04:05"), dayStart.Format("2006-01-02")+" 23:59:59")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get calendar events: %w", err)
 	}
 
-	return events, nil
+	return eventsOverlapping(events, dayStart, dayEnd), nil
+}
+
+// eventsOverlapping keeps events that overlap [from, to). HA also returns events that only touch
+// the range boundary, e.g. yesterday's 18:30-00:00 outage for today.
+func eventsOverlapping(events []homeassistant.CalendarEvent, from, to time.Time) []homeassistant.CalendarEvent {
+	var result []homeassistant.CalendarEvent
+	for _, event := range events {
+		start, err := time.Parse(time.RFC3339, event.Start)
+		if err != nil {
+			slog.Warn("Failed to parse event start time", "value", event.Start, "error", err)
+			continue
+		}
+		end, err := time.Parse(time.RFC3339, event.End)
+		if err != nil {
+			slog.Warn("Failed to parse event end time", "value", event.End, "error", err)
+			continue
+		}
+		if start.Before(to) && end.After(from) {
+			result = append(result, event)
+		}
+	}
+	return result
 }
 
 // sendToAllChatsWithQuietHours sends message to all chats, disabling notification during quiet hours (23:00-06:00)
