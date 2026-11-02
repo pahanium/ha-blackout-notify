@@ -22,9 +22,9 @@ const (
 
 // Yasno schedule messages
 const (
-	MsgYasnoScheduleTomorrow  = "📅 *Графік відключень на %s%s*" // завтра сб, 07.02, група 2.1
-	MsgYasnoNoOutagesTomorrow = "📅 *Графік на %s%s*\n\n✅ Відключень не повинно бути 🌞"
+	MsgYasnoSchedule          = "📅 *Графік відключень на %s%s*" // завтра сб, 07.02, група 2.1
+	MsgYasnoNoOutages         = "📅 *Графік на %s%s*\n\n✅ Відключень не повинно бути 🌞"
 	MsgYasnoEmergencyShutdown = "🚨 *Аварійні відключення!*\n\nГрафік не діє. Світло може відключитися в будь-який момент."
-	MsgYasnoScheduleRestored  = "✅ *Графік відновлено*\n\nАварійні відключення закінчились, діє звичайний графік."
+	MsgYasnoEmergencyEnded    = "✅ *Аварійні відключення скасовані*"
 	MsgYasnoOutageInterval    = "🪫%s - %s" // "🪫07:30 - 14:30"
 )

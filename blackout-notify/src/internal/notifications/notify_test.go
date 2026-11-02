@@ -27,9 +27,10 @@ func (f *fakeSender) Send(c tgbotapi.Chattable) (tgbotapi.Message, error) {
 	return tgbotapi.Message{}, nil
 }
 
-// fakeHA serves entity states from a map
+// fakeHA serves entity states from a map and a fixed list of calendar events
 type fakeHA struct {
 	states map[string]string
+	events []homeassistant.CalendarEvent
 }
 
 func (f *fakeHA) GetState(ctx context.Context, entityID string) (*homeassistant.Entity, error) {
@@ -41,7 +42,7 @@ func (f *fakeHA) GetState(ctx context.Context, entityID string) (*homeassistant.
 }
 
 func (f *fakeHA) GetCalendarEvents(ctx context.Context, calendarID, start, end string) ([]homeassistant.CalendarEvent, error) {
-	return nil, nil
+	return f.events, nil
 }
 
 func newTestService(t *testing.T, states map[string]string) (*Service, *fakeSender) {
@@ -113,14 +114,16 @@ func TestNotify_PausedSendsNothing(t *testing.T) {
 	_ = svc.NotifyPowerOn(ctx, 3600)
 	_ = svc.NotifyPowerOff(ctx, 3600)
 	_ = svc.NotifyYasnoEmergencyShutdown(ctx)
-	_ = svc.NotifyYasnoScheduleTomorrow(ctx, nil, "група 2.1")
+	_ = svc.NotifySchedule(ctx, nil, time.Now())
+	_ = svc.NotifyScheduleChanged(ctx, "on", nil, nil)
+	_ = svc.NotifyEmergencyEnded(ctx, "on", nil, nil)
 
 	if len(sender.sent) != 0 {
 		t.Errorf("paused: want no messages, got %d", len(sender.sent))
 	}
 }
 
-func TestNotifyYasnoScheduleTomorrow_QuietHours(t *testing.T) {
+func TestNotifySchedule_QuietHours(t *testing.T) {
 	kyiv, err := time.LoadLocation("Europe/Kyiv")
 	if err != nil {
 		t.Fatalf("load location: %v", err)
@@ -139,8 +142,8 @@ func TestNotifyYasnoScheduleTomorrow_QuietHours(t *testing.T) {
 			svc, sender := newTestService(t, nil)
 			svc.now = func() time.Time { return time.Date(2026, 10, 31, tt.hour, 0, 0, 0, kyiv) }
 
-			if err := svc.NotifyYasnoScheduleTomorrow(context.Background(), nil, "група 2.1"); err != nil {
-				t.Fatalf("NotifyYasnoScheduleTomorrow: %v", err)
+			if err := svc.NotifySchedule(context.Background(), nil, svc.now().AddDate(0, 0, 1)); err != nil {
+				t.Fatalf("NotifySchedule: %v", err)
 			}
 			if got := sender.sent[0].DisableNotification; got != tt.silent {
 				t.Errorf("DisableNotification = %v, want %v", got, tt.silent)

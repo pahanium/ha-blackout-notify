@@ -8,7 +8,6 @@ import (
 
 	"github.com/pahanium/ha-blackout-notify/internal/config"
 	"github.com/pahanium/ha-blackout-notify/internal/homeassistant"
-	"github.com/pahanium/ha-blackout-notify/internal/notifications"
 )
 
 // PowerState represents power status
@@ -36,11 +35,19 @@ type StateGetter interface {
 type Notifier interface {
 	NotifyPowerOn(ctx context.Context, previousOffDurationSec int64) error
 	NotifyPowerOff(ctx context.Context, previousOnDurationSec int64) error
-	NotifyScheduleChanged(ctx context.Context, scheduleType string, oldTime, newTime *time.Time) error
-	NotifyYasnoScheduleTomorrow(ctx context.Context, events []homeassistant.CalendarEvent, groupName string) error
+	NotifyScheduleChanged(ctx context.Context, scheduleType string, newTime *time.Time, todayEvents []homeassistant.CalendarEvent) error
+	NotifyEmergencyEnded(ctx context.Context, scheduleType string, nextTime *time.Time, todayEvents []homeassistant.CalendarEvent) error
+	NotifySchedule(ctx context.Context, events []homeassistant.CalendarEvent, date time.Time) error
 	NotifyYasnoEmergencyShutdown(ctx context.Context) error
 	GetScheduledTime(ctx context.Context, sensorID string) (*time.Time, error)
 	GetYasnoCalendarEvents(ctx context.Context, calendarID string, date time.Time) ([]homeassistant.CalendarEvent, error)
+}
+
+// ScheduleLog remembers which schedule was sent for each date (implemented by stats.ScheduleLog)
+type ScheduleLog interface {
+	LastSent(ctx context.Context, date string) (string, error)
+	MarkSent(ctx context.Context, date, fingerprint string) error
+	IsEmpty(ctx context.Context) (bool, error)
 }
 
 // StateRecorder persists power state changes (implemented by stats.Recorder)
@@ -55,6 +62,7 @@ type Watcher struct {
 	haClient      StateGetter
 	notifSvc      Notifier
 	statsRecorder StateRecorder
+	scheduleLog   ScheduleLog
 
 	mu              sync.Mutex
 	lastState       PowerState
@@ -67,15 +75,18 @@ type Watcher struct {
 	pendingSince  time.Time
 	debounceTimer *time.Timer
 
-	// Schedule sensor debounce, tracked per schedule type ("on"/"off")
-	lastScheduleChange map[string]time.Time
+	// Schedule reconciliation: schedule-related events are collected for reconcileDelay,
+	// then reconcileSchedule decides which single message (if any) to send
+	reconcileMu       sync.Mutex // serializes reconcileSchedule runs
+	reconcileDelay    time.Duration
+	reconcileInterval time.Duration
+	reconcileTimer    *time.Timer
+	todayStatus       string // Yasno today status as of the last reconciliation
 
-	// Yasno schedule monitoring, debounced per sensor
-	lastYasnoTodayState     string
-	lastYasnoTomorrowState  string
-	yasnoDebounceTime       time.Duration
-	lastYasnoTodayChange    time.Time
-	lastYasnoTomorrowChange time.Time
+	// Emergency shutdown start is announced immediately, not via reconciliation
+	emergencyActive        bool
+	lastEmergencyNotice    time.Time
+	emergencyNoticeBackoff time.Duration
 }
 
 // NewWatcher creates a new state watcher
@@ -85,17 +96,20 @@ func NewWatcher(
 	haClient StateGetter,
 	notifSvc Notifier,
 	statsRecorder StateRecorder,
+	scheduleLog ScheduleLog,
 ) *Watcher {
 	return &Watcher{
-		config:             cfg,
-		wsClient:           wsClient,
-		haClient:           haClient,
-		notifSvc:           notifSvc,
-		statsRecorder:      statsRecorder,
-		lastState:          PowerStateUnknown,
-		debounceTime:       5 * time.Second, // State must be stable this long before it is applied
-		lastScheduleChange: make(map[string]time.Time),
-		yasnoDebounceTime:  30 * time.Second, // Longer debounce for Yasno to avoid spam
+		config:                 cfg,
+		wsClient:               wsClient,
+		haClient:               haClient,
+		notifSvc:               notifSvc,
+		statsRecorder:          statsRecorder,
+		scheduleLog:            scheduleLog,
+		lastState:              PowerStateUnknown,
+		debounceTime:           5 * time.Second,  // State must be stable this long before it is applied
+		reconcileDelay:         10 * time.Second, // Sensors of one schedule update arrive together
+		reconcileInterval:      10 * time.Minute, // Catch schedule changes that don't move next on/off
+		emergencyNoticeBackoff: 30 * time.Minute, // Don't repeat the emergency alert if the status flaps
 	}
 }
 
@@ -113,28 +127,16 @@ func (w *Watcher) Start(ctx context.Context) error {
 		slog.Warn("Failed to get initial state", "error", err)
 	}
 
-	// Get initial schedule times
-	w.fetchInitialScheduleTimes(ctx)
+	// Remember current schedule so startup doesn't announce it again
+	w.initSchedule(ctx)
 
 	// Register handler for power state changes
 	w.wsClient.OnStateChange(w.config.WatchedEntityID, func(entityID string, oldState, newState *homeassistant.Entity) {
 		w.handleStateChange(ctx, oldState, newState)
 	})
 
-	// Register handlers for schedule changes
-	if w.config.NextOnSensorID != "" {
-		w.wsClient.OnStateChange(w.config.NextOnSensorID, func(entityID string, oldState, newState *homeassistant.Entity) {
-			w.handleScheduleChange(ctx, "on", oldState, newState)
-		})
-	}
-	if w.config.NextOffSensorID != "" {
-		w.wsClient.OnStateChange(w.config.NextOffSensorID, func(entityID string, oldState, newState *homeassistant.Entity) {
-			w.handleScheduleChange(ctx, "off", oldState, newState)
-		})
-	}
-
-	// Register handlers for Yasno sensors
-	w.registerYasnoHandlers(ctx)
+	// Register handlers for schedule sensors
+	w.registerScheduleHandlers(ctx)
 
 	// Start WebSocket client with reconnect
 	return w.wsClient.RunWithReconnect(ctx)
@@ -270,145 +272,14 @@ func (w *Watcher) Stop() {
 		w.debounceTimer.Stop()
 		w.debounceTimer = nil
 	}
+	if w.reconcileTimer != nil {
+		w.reconcileTimer.Stop()
+		w.reconcileTimer = nil
+	}
 	w.mu.Unlock()
 
 	if w.wsClient != nil {
 		w.wsClient.Stop()
-	}
-}
-
-// fetchInitialScheduleTimes gets current schedule times
-func (w *Watcher) fetchInitialScheduleTimes(ctx context.Context) {
-	if w.config.NextOnSensorID != "" {
-		nextOn, err := w.notifSvc.GetScheduledTime(ctx, w.config.NextOnSensorID)
-		if err != nil {
-			slog.Warn("Failed to get initial next on time", "error", err)
-		} else {
-			w.mu.Lock()
-			w.lastNextOnTime = nextOn
-			w.mu.Unlock()
-			if nextOn != nil {
-				slog.Info("Initial next power on time", "time", nextOn.Format("15:04"))
-			}
-		}
-	}
-
-	if w.config.NextOffSensorID != "" {
-		nextOff, err := w.notifSvc.GetScheduledTime(ctx, w.config.NextOffSensorID)
-		if err != nil {
-			slog.Warn("Failed to get initial next off time", "error", err)
-		} else {
-			w.mu.Lock()
-			w.lastNextOffTime = nextOff
-			w.mu.Unlock()
-			if nextOff != nil {
-				slog.Info("Initial next power off time", "time", nextOff.Format("15:04"))
-			}
-		}
-	}
-}
-
-// handleScheduleChange processes schedule sensor changes
-func (w *Watcher) handleScheduleChange(ctx context.Context, scheduleType string, oldState, newState *homeassistant.Entity) {
-	if newState == nil {
-		return
-	}
-
-	// Get current power state to decide if we should notify
-	w.mu.Lock()
-	currentPowerState := w.lastState
-	timeSinceLastScheduleChange := time.Since(w.lastScheduleChange[scheduleType])
-	w.mu.Unlock()
-
-	// Debounce schedule changes per type (avoid spam on reconnect)
-	if timeSinceLastScheduleChange < w.debounceTime {
-		slog.Debug("Debouncing schedule change", "type", scheduleType)
-		return
-	}
-
-	// Parse new time
-	var sensorID string
-	if scheduleType == "on" {
-		sensorID = w.config.NextOnSensorID
-	} else {
-		sensorID = w.config.NextOffSensorID
-	}
-
-	newTime, err := w.notifSvc.GetScheduledTime(ctx, sensorID)
-	if err != nil {
-		slog.Warn("Failed to parse schedule time", "error", err)
-		return
-	}
-
-	// Get previous time
-	w.mu.Lock()
-	var oldTime *time.Time
-	if scheduleType == "on" {
-		oldTime = w.lastNextOnTime
-	} else {
-		oldTime = w.lastNextOffTime
-	}
-	w.mu.Unlock()
-
-	// Check if time actually changed
-	if timesEqual(oldTime, newTime) {
-		return
-	}
-
-	// Ignore schedule cancellations (when newTime becomes nil)
-	// This prevents losing the original scheduled time which is needed for suppression logic
-	if newTime == nil {
-		slog.Debug("Schedule cancelled, keeping previous time for suppression logic", "type", scheduleType, "previous", formatTimePtr(oldTime))
-		return
-	}
-
-	slog.Info("Schedule changed", "type", scheduleType, "from", formatTimePtr(oldTime), "to", formatTimePtr(newTime))
-
-	// Update stored time
-	w.mu.Lock()
-	if scheduleType == "on" {
-		w.lastNextOnTime = newTime
-	} else {
-		w.lastNextOffTime = newTime
-	}
-	w.lastScheduleChange[scheduleType] = time.Now()
-	w.mu.Unlock()
-
-	// Only notify about relevant schedule changes based on current power state
-	// When power is OFF - notify about next ON time changes
-	// When power is ON - notify about next OFF time changes
-	shouldNotify := false
-	if scheduleType == "on" && currentPowerState == PowerStateOff {
-		shouldNotify = true
-	} else if scheduleType == "off" && currentPowerState == PowerStateOn {
-		shouldNotify = true
-	}
-
-	// Suppress notification if old scheduled time has already passed or passed recently (within 60 min)
-	// This happens when power state change is delayed but schedule already updated
-	if shouldNotify && oldTime != nil {
-		timeSinceOldSchedule := time.Since(*oldTime)
-		if timeSinceOldSchedule > -time.Minute && timeSinceOldSchedule < 60*time.Minute {
-			slog.Debug("Suppressing schedule notification: old time recently passed", "old_time", formatTimePtr(oldTime), "minutes_ago", int(timeSinceOldSchedule.Minutes()))
-			shouldNotify = false
-		}
-	}
-
-	// Suppress notification if new scheduled time is for a different day (not today)
-	// This prevents spam when evening schedule updates reflect tomorrow's schedule
-	if shouldNotify && newTime != nil {
-		loc := w.config.Location
-		now := time.Now()
-		if !sameDay(*newTime, now, loc) {
-			slog.Debug("Suppressing schedule notification: new time is not today", "new_time", formatTimePtr(newTime), "new_date", newTime.In(loc).Format("2006-01-02"), "today", now.In(loc).Format("2006-01-02"))
-			shouldNotify = false
-		}
-	}
-
-	if shouldNotify {
-		if err := w.notifSvc.NotifyScheduleChanged(ctx, scheduleType, oldTime, newTime); err != nil {
-			slog.Error("Failed to send schedule change notification", "error", err)
-		}
 	}
 }
 
@@ -448,167 +319,5 @@ func normalizeState(state string) PowerState {
 		return PowerStateOff
 	default:
 		return PowerStateUnknown
-	}
-}
-
-// registerYasnoHandlers registers WebSocket handlers for Yasno sensors
-func (w *Watcher) registerYasnoHandlers(ctx context.Context) {
-	if !w.config.IsYasnoMonitoringEnabled() {
-		slog.Debug("Yasno monitoring not configured, skipping")
-		return
-	}
-
-	slog.Info("Registering Yasno schedule monitors", "today", w.config.YasnoTodaySensorID, "tomorrow", w.config.YasnoTomorrowSensorID, "calendar", w.config.YasnoCalendarID)
-
-	// Monitor today status sensor for emergency shutdowns
-	if w.config.YasnoTodaySensorID != "" {
-		w.wsClient.OnStateChange(w.config.YasnoTodaySensorID, func(entityID string, oldState, newState *homeassistant.Entity) {
-			w.handleYasnoTodayChange(ctx, oldState, newState)
-		})
-	}
-
-	// Monitor tomorrow status sensor for schedule announcements
-	if w.config.YasnoTomorrowSensorID != "" {
-		w.wsClient.OnStateChange(w.config.YasnoTomorrowSensorID, func(entityID string, oldState, newState *homeassistant.Entity) {
-			w.handleYasnoTomorrowChange(ctx, oldState, newState)
-		})
-	}
-}
-
-// handleYasnoTodayChange processes changes to today's Yasno status
-func (w *Watcher) handleYasnoTodayChange(ctx context.Context, oldState, newState *homeassistant.Entity) {
-	if newState == nil {
-		return
-	}
-
-	// Get schedule state from sensor state (not attributes)
-	scheduleState := newState.State
-	if scheduleState == "" {
-		slog.Warn("Yasno today sensor has empty state")
-		return
-	}
-
-	w.mu.Lock()
-	previousState := w.lastYasnoTodayState
-	timeSinceLastNotif := time.Since(w.lastYasnoTodayChange)
-	w.mu.Unlock()
-
-	// Skip if state hasn't changed
-	if scheduleState == previousState {
-		return
-	}
-
-	// Debounce to avoid spam
-	if timeSinceLastNotif < w.yasnoDebounceTime {
-		slog.Debug("Debouncing Yasno today change", "from", previousState, "to", scheduleState)
-		return
-	}
-
-	slog.Info("Yasno today status changed", "from", previousState, "to", scheduleState)
-
-	// Update stored state
-	w.mu.Lock()
-	w.lastYasnoTodayState = scheduleState
-	w.lastYasnoTodayChange = time.Now()
-	w.mu.Unlock()
-
-	// Handle different state transitions
-	switch scheduleState {
-	case "emergency_shutdowns":
-		slog.Info("Yasno: emergency shutdowns detected")
-		if err := w.notifSvc.NotifyYasnoEmergencyShutdown(ctx); err != nil {
-			slog.Error("Failed to send Yasno emergency notification", "error", err)
-		}
-
-	case "schedule_applies":
-		// Schedule restored after emergency
-		if previousState == "emergency_shutdowns" {
-			slog.Info("Yasno: schedule restored after emergency shutdowns")
-			// Currently just logging, can enable notification if needed
-			// if err := w.notifSvc.NotifyYasnoScheduleRestored(ctx); err != nil {
-			// 	slog.Error("Failed to send Yasno schedule restored notification", "error", err)
-			// }
-		} else {
-			slog.Info("Yasno: schedule applies today")
-		}
-
-	case "waiting_for_schedule":
-		slog.Info("Yasno: waiting for schedule")
-
-	default:
-		slog.Warn("Yasno: unknown today status", "state", scheduleState)
-	}
-}
-
-// handleYasnoTomorrowChange processes changes to tomorrow's Yasno status
-func (w *Watcher) handleYasnoTomorrowChange(ctx context.Context, oldState, newState *homeassistant.Entity) {
-	if newState == nil {
-		return
-	}
-
-	// Get schedule state from sensor state (not attributes)
-	scheduleState := newState.State
-	if scheduleState == "" {
-		slog.Warn("Yasno tomorrow sensor has empty state")
-		return
-	}
-
-	w.mu.Lock()
-	previousState := w.lastYasnoTomorrowState
-	timeSinceLastNotif := time.Since(w.lastYasnoTomorrowChange)
-	w.mu.Unlock()
-
-	// Skip if state hasn't changed
-	if scheduleState == previousState {
-		return
-	}
-
-	// Debounce to avoid spam
-	if timeSinceLastNotif < w.yasnoDebounceTime {
-		slog.Debug("Debouncing Yasno tomorrow change", "from", previousState, "to", scheduleState)
-		return
-	}
-
-	slog.Info("Yasno tomorrow status changed", "from", previousState, "to", scheduleState)
-
-	// Update stored state
-	w.mu.Lock()
-	w.lastYasnoTomorrowState = scheduleState
-	w.lastYasnoTomorrowChange = time.Now()
-	w.mu.Unlock()
-
-	// Handle different state transitions
-	switch scheduleState {
-	case "schedule_applies":
-		slog.Info("Yasno: tomorrow schedule available")
-
-		// Get calendar events for tomorrow in the configured timezone
-		tomorrow := time.Now().In(w.config.Location).AddDate(0, 0, 1)
-		events, err := w.notifSvc.GetYasnoCalendarEvents(ctx, w.config.YasnoCalendarID, tomorrow)
-		if err != nil {
-			slog.Error("Failed to get Yasno calendar events", "error", err)
-			return
-		}
-
-		slog.Debug("Retrieved calendar events for tomorrow", "count", len(events))
-
-		// Extract group name from calendar entity ID
-		// Example: calendar.yasno_kiiv_2_1_planned_outages -> "група 2.1"
-		groupName := notifications.ExtractYasnoGroupFromCalendarID(w.config.YasnoCalendarID)
-		slog.Debug("Yasno group extracted from calendar ID", "calendar", w.config.YasnoCalendarID, "group", groupName)
-
-		// Send notification with schedule
-		if err := w.notifSvc.NotifyYasnoScheduleTomorrow(ctx, events, groupName); err != nil {
-			slog.Error("Failed to send Yasno tomorrow schedule notification", "error", err)
-		}
-
-	case "waiting_for_schedule":
-		slog.Info("Yasno: waiting for tomorrow schedule")
-
-	case "emergency_shutdowns":
-		slog.Info("Yasno: emergency shutdowns expected tomorrow")
-
-	default:
-		slog.Warn("Yasno: unknown tomorrow status", "state", scheduleState)
 	}
 }

@@ -102,9 +102,14 @@ The bot only reads from Home Assistant; it cannot control entities.
 ```
 🔄 *Графік оновлено*
 
-📅 Заживлення через 2 год 30 хв (18:00)
+📅 Відключення через 1год 56хв (08:30)
 за даними Yasno
+
+🪫08:30 - 15:30
+🪫19:00 - 00:00
 ```
+
+Today's and tomorrow's schedules are sent once per date in the `/calendar` format; emergency shutdowns get one alert at the start and "✅ Аварійні відключення скасовані" with the schedule at the end. See `blackout-notify/DOCS.md` for all message formats.
 
 ## Local Development
 

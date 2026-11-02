@@ -63,16 +63,14 @@ func (s *Service) NotifyPowerOn(ctx context.Context, previousOffDurationSec int6
 		fmt.Fprintf(&sb, "\n%s", fmt.Sprintf(MsgWasOff, durationStr))
 	}
 
-	// Get next scheduled off time
-	if s.config.NextOffSensorID != "" {
+	// Next scheduled off time, unless power came back outside the schedule
+	offDuration := time.Duration(previousOffDurationSec) * time.Second
+	if s.config.NextOffSensorID != "" && s.isScheduledPowerChange(ctx, true, now, offDuration) {
 		nextOff, err := s.getScheduledTime(ctx, s.config.NextOffSensorID)
 		if err != nil {
 			slog.Warn("Failed to get next off time", "error", err)
-		} else if nextOff != nil {
-			duration := nextOff.Sub(now)
-			fmt.Fprintf(&sb, "\n\n%s\n%s",
-				fmt.Sprintf(MsgScheduleOffIn, formatDuration(duration), nextOff.In(s.location).Format("15:04")),
-				MsgScheduleSource)
+		} else if next := s.formatNextTime("off", nextOff, now); next != "" {
+			sb.WriteString("\n\n" + next)
 		}
 	}
 
@@ -99,16 +97,13 @@ func (s *Service) NotifyPowerOff(ctx context.Context, previousOnDurationSec int6
 		fmt.Fprintf(&sb, "\n%s", fmt.Sprintf(MsgWasOn, durationStr))
 	}
 
-	// Get next scheduled on time
-	if s.config.NextOnSensorID != "" {
+	// Next scheduled on time, unless power went out outside the schedule
+	if s.config.NextOnSensorID != "" && s.isScheduledPowerChange(ctx, false, now, 0) {
 		nextOn, err := s.getScheduledTime(ctx, s.config.NextOnSensorID)
 		if err != nil {
 			slog.Warn("Failed to get next on time", "error", err)
-		} else if nextOn != nil {
-			duration := nextOn.Sub(now)
-			fmt.Fprintf(&sb, "\n\n%s\n%s",
-				fmt.Sprintf(MsgScheduleOnIn, formatDuration(duration), nextOn.In(s.location).Format("15:04")),
-				MsgScheduleSource)
+		} else if next := s.formatNextTime("on", nextOn, now); next != "" {
+			sb.WriteString("\n\n" + next)
 		}
 	}
 
@@ -214,38 +209,6 @@ func (s *Service) SendCustomMessage(text string) error {
 	return s.sendToAllChats(text)
 }
 
-// NotifyScheduleChanged sends notification when schedule changes
-// scheduleType: "on" for next power on, "off" for next power off
-func (s *Service) NotifyScheduleChanged(ctx context.Context, scheduleType string, oldTime, newTime *time.Time) error {
-	if s.isPaused(ctx) {
-		slog.Debug("Notifications paused, skipping schedule change notification")
-		return nil
-	}
-
-	now := time.Now().In(s.location)
-
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "%s\n\n", MsgScheduleUpdate)
-
-	if scheduleType == "on" {
-		if newTime != nil {
-			duration := newTime.Sub(now)
-			fmt.Fprintf(&sb, "%s\n",
-				fmt.Sprintf(MsgScheduleOnIn, formatDuration(duration), newTime.In(s.location).Format("15:04")))
-		}
-	} else {
-		if newTime != nil {
-			duration := newTime.Sub(now)
-			fmt.Fprintf(&sb, "%s\n",
-				fmt.Sprintf(MsgScheduleOffIn, formatDuration(duration), newTime.In(s.location).Format("15:04")))
-		}
-	}
-
-	sb.WriteString(MsgScheduleSource)
-
-	return s.sendToAllChats(sb.String())
-}
-
 // GetScheduledTime is a public wrapper for getScheduledTime
 func (s *Service) GetScheduledTime(ctx context.Context, sensorID string) (*time.Time, error) {
 	return s.getScheduledTime(ctx, sensorID)
@@ -281,66 +244,6 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%dгод %dхв", hours, minutes)
 }
 
-// NotifyYasnoScheduleTomorrow sends notification about tomorrow's Yasno schedule
-func (s *Service) NotifyYasnoScheduleTomorrow(ctx context.Context, events []homeassistant.CalendarEvent, groupName string) error {
-	if s.isPaused(ctx) {
-		slog.Debug("Notifications paused, skipping Yasno schedule notification")
-		return nil
-	}
-
-	tomorrow := time.Now().In(s.location).AddDate(0, 0, 1)
-	dateStr := formatYasnoDate(tomorrow, s.location)
-
-	// Add group name if available
-	groupStr := ""
-	if groupName != "" {
-		groupStr = fmt.Sprintf(", %s", groupName)
-	}
-
-	// Filter events with description="Definite" (actual outages)
-	var outages []homeassistant.CalendarEvent
-	for _, event := range events {
-		if event.Description == "Definite" {
-			outages = append(outages, event)
-		}
-	}
-
-	// Build message
-	var sb strings.Builder
-
-	if len(outages) == 0 {
-		// No outages tomorrow
-		fmt.Fprintf(&sb, MsgYasnoNoOutagesTomorrow, dateStr, groupStr)
-	} else {
-		// Has outages
-		fmt.Fprintf(&sb, MsgYasnoScheduleTomorrow, dateStr, groupStr)
-		sb.WriteString("\n")
-
-		// Format each outage interval
-		for _, outage := range outages {
-			startTime, err := time.Parse(time.RFC3339, outage.Start)
-			if err != nil {
-				slog.Warn("Failed to parse outage start time", "value", outage.Start, "error", err)
-				continue
-			}
-			endTime, err := time.Parse(time.RFC3339, outage.End)
-			if err != nil {
-				slog.Warn("Failed to parse outage end time", "value", outage.End, "error", err)
-				continue
-			}
-
-			startTime = startTime.In(s.location)
-			endTime = endTime.In(s.location)
-
-			fmt.Fprintf(&sb, "\n"+MsgYasnoOutageInterval,
-				startTime.Format("15:04"),
-				endTime.Format("15:04"))
-		}
-	}
-
-	return s.sendToAllChatsWithQuietHours(ctx, sb.String())
-}
-
 // NotifyYasnoEmergencyShutdown sends notification about emergency shutdowns
 func (s *Service) NotifyYasnoEmergencyShutdown(ctx context.Context) error {
 	if s.isPaused(ctx) {
@@ -349,16 +252,6 @@ func (s *Service) NotifyYasnoEmergencyShutdown(ctx context.Context) error {
 	}
 
 	return s.sendToAllChats(MsgYasnoEmergencyShutdown)
-}
-
-// NotifyYasnoScheduleRestored sends notification when schedule is restored after emergency
-func (s *Service) NotifyYasnoScheduleRestored(ctx context.Context) error {
-	if s.isPaused(ctx) {
-		slog.Debug("Notifications paused, skipping Yasno schedule restored notification")
-		return nil
-	}
-
-	return s.sendToAllChats(MsgYasnoScheduleRestored)
 }
 
 // GetYasnoCalendarEvents retrieves calendar events for a specific date
@@ -419,7 +312,7 @@ func formatYasnoDate(date time.Time, loc *time.Location) string {
 	var prefix string
 	if isSameDay(date, now) {
 		prefix = "сьогодні"
-	} else if isSameDay(date, now.Add(24*time.Hour)) {
+	} else if isSameDay(date, now.AddDate(0, 0, 1)) {
 		prefix = "завтра"
 	} else {
 		// Use date as prefix for other days
@@ -448,48 +341,11 @@ func (s *Service) FormatYasnoSchedule(events []homeassistant.CalendarEvent, date
 		groupStr = fmt.Sprintf(", %s", groupName)
 	}
 
-	// Filter events with description="Definite" (actual outages)
-	var outages []homeassistant.CalendarEvent
-	for _, event := range events {
-		if event.Description == "Definite" {
-			outages = append(outages, event)
-		}
+	lines := s.formatOutageLines(events)
+	if lines == "" {
+		return fmt.Sprintf(MsgYasnoNoOutages, dateStr, groupStr)
 	}
-
-	// Build message
-	var sb strings.Builder
-
-	if len(outages) == 0 {
-		// No outages
-		fmt.Fprintf(&sb, MsgYasnoNoOutagesTomorrow, dateStr, groupStr)
-	} else {
-		// Has outages
-		fmt.Fprintf(&sb, MsgYasnoScheduleTomorrow, dateStr, groupStr)
-		sb.WriteString("\n")
-
-		// Format each outage interval
-		for _, outage := range outages {
-			startTime, err := time.Parse(time.RFC3339, outage.Start)
-			if err != nil {
-				slog.Warn("Failed to parse outage start time", "value", outage.Start, "error", err)
-				continue
-			}
-			endTime, err := time.Parse(time.RFC3339, outage.End)
-			if err != nil {
-				slog.Warn("Failed to parse outage end time", "value", outage.End, "error", err)
-				continue
-			}
-
-			startTime = startTime.In(s.location)
-			endTime = endTime.In(s.location)
-
-			fmt.Fprintf(&sb, "\n"+MsgYasnoOutageInterval,
-				startTime.Format("15:04"),
-				endTime.Format("15:04"))
-		}
-	}
-
-	return sb.String()
+	return fmt.Sprintf(MsgYasnoSchedule, dateStr, groupStr) + "\n\n" + lines
 }
 
 // ExtractYasnoGroupFromCalendarID extracts group number from calendar entity ID
