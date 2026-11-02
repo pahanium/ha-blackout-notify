@@ -11,7 +11,6 @@ url: "https://github.com/pahanium/ha-blackout-notify"
 arch:
   - amd64
   - aarch64
-  - armv7
 
 # Start at HA boot
 startup: services

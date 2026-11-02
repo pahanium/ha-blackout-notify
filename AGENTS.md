@@ -1,6 +1,6 @@
 # Agent Guidelines for Blackout Notify
 
-Home Assistant add-on in **Go 1.26** that watches power state through the HA WebSocket API and sends Telegram notifications about outages, restorations and Yasno outage schedules. Packaged as a multi-arch (amd64/aarch64/armv7) s6-overlay Docker image.
+Home Assistant add-on in **Go 1.26** that watches power state through the HA WebSocket API and sends Telegram notifications about outages, restorations and Yasno outage schedules. Packaged as a multi-arch (amd64/aarch64) s6-overlay Docker image.
 
 ## Commands
 

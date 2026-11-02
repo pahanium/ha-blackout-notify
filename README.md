@@ -117,7 +117,7 @@ make test              # tests with race detector
 make lint              # gofmt, go vet, golangci-lint (same as CI)
 make check             # test + lint + govulncheck
 make dev-up            # run in Docker (Dockerfile.dev), stats DB kept in .data/
-make docker ARCH=aarch64   # build the production add-on image (aarch64|amd64|armv7)
+make docker ARCH=aarch64   # build the production add-on image (aarch64|amd64)
 ```
 
 Notes:
@@ -198,7 +198,7 @@ ha-blackout-notify/
 GitHub Actions workflow (`.github/workflows/build.yaml`) automatically:
 - Runs tests on every push/PR
 - Lints code with golangci-lint
-- Builds Docker images for multiple architectures (amd64, aarch64, armv7)
+- Builds Docker images for multiple architectures (amd64, aarch64)
 - Pushes images to GHCR on tag releases
 
 ## Contributing
