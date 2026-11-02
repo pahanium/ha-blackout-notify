@@ -31,7 +31,7 @@ cmd/bot/main.go          → wiring, signal handling
 internal/config/         → env-var config
 internal/homeassistant/  → REST client, calendar.get_events, WebSocket client with auto-reconnect
 internal/watcher/        → reacts to HA state changes (power + schedule + Yasno sensors)
-internal/notifications/  → message formatting and sending; all Ukrainian strings in messages.go
+internal/notifications/  → message formatting and sending
 internal/stats/          → SQLite power_events table, /stats queries
 internal/bot/            → Telegram command handlers (read-only: /status, /stats, /calendar, /chatid)
 internal/logger/         → leveled logger (Debug/Info/Warn/Error/Fatal)
@@ -61,7 +61,7 @@ internal/logger/         → leveled logger (Debug/Info/Warn/Error/Fatal)
 
 ## Conventions
 
-- Code, comments, docs and commits in English; user-facing Telegram messages in Ukrainian (`internal/notifications/messages.go`).
+- Code, comments, docs and commits in English; all user-facing Telegram texts in Ukrainian, kept in `internal/notifications/messages.go` and `internal/bot/messages.go`. Escape user input and error text inserted into Markdown messages with `tgbotapi.EscapeText`.
 - Module path: `github.com/pahanium/ha-blackout-notify`. Import groups: stdlib, external, internal.
 - Wrap errors with context: `fmt.Errorf("failed to get state: %w", err)`; don't discard errors with `_`.
 - Log through `internal/logger`, not `log`/`fmt.Print`.
