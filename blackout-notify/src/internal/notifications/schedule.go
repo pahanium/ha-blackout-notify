@@ -37,12 +37,12 @@ func definiteOutages(events []homeassistant.CalendarEvent, loc *time.Location) [
 		if event.Description != definiteOutageEventDescription {
 			continue
 		}
-		start, err := time.Parse(time.RFC3339, event.Start)
+		start, err := parseEventTime(event.Start, loc)
 		if err != nil {
 			slog.Warn("Failed to parse outage start time", "value", event.Start, "error", err)
 			continue
 		}
-		end, err := time.Parse(time.RFC3339, event.End)
+		end, err := parseEventTime(event.End, loc)
 		if err != nil {
 			slog.Warn("Failed to parse outage end time", "value", event.End, "error", err)
 			continue

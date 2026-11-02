@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.2] - 2026-11-02
+
+### Fixed
+- 📅 **All-day calendar events**: Events without a time (date only) were logged as "Failed to parse event start time" warnings and dropped. They are now parsed as whole days
+
 ## [0.8.1] - 2026-11-02
 
 ### Fixed
