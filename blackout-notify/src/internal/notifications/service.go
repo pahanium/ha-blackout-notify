@@ -274,12 +274,12 @@ func (s *Service) GetYasnoCalendarEvents(ctx context.Context, calendarID string,
 func eventsOverlapping(events []homeassistant.CalendarEvent, from, to time.Time) []homeassistant.CalendarEvent {
 	var result []homeassistant.CalendarEvent
 	for _, event := range events {
-		start, err := time.Parse(time.RFC3339, event.Start)
+		start, err := parseEventTime(event.Start, from.Location())
 		if err != nil {
 			slog.Warn("Failed to parse event start time", "value", event.Start, "error", err)
 			continue
 		}
-		end, err := time.Parse(time.RFC3339, event.End)
+		end, err := parseEventTime(event.End, from.Location())
 		if err != nil {
 			slog.Warn("Failed to parse event end time", "value", event.End, "error", err)
 			continue
@@ -289,6 +289,19 @@ func eventsOverlapping(events []homeassistant.CalendarEvent, from, to time.Time)
 		}
 	}
 	return result
+}
+
+// parseEventTime parses a calendar event time: RFC3339 for timed events or a date (local midnight
+// in loc) for all-day events, whose end date is exclusive
+func parseEventTime(value string, loc *time.Location) (time.Time, error) {
+	if t, err := time.Parse(time.RFC3339, value); err == nil {
+		return t, nil
+	}
+	t, err := time.ParseInLocation(time.DateOnly, value, loc)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("unsupported event time %q: %w", value, err)
+	}
+	return t, nil
 }
 
 // sendToAllChatsWithQuietHours sends message to all chats, disabling notification during quiet hours (23:00-06:00)

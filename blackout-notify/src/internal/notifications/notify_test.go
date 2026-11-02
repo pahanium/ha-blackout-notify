@@ -181,6 +181,9 @@ func TestGetYasnoCalendarEvents_OnlyEventsOfThatDay(t *testing.T) {
 		{Start: "2026-11-03T23:00:00+02:00", End: "2026-11-04T00:00:00+02:00", Description: "Definite"},
 		{Start: "2026-11-04T00:00:00+02:00", End: "2026-11-04T03:30:00+02:00", Description: "Definite"},
 		{Start: "2026-11-02T22:00:00+02:00", End: "2026-11-03T01:00:00+02:00", Description: "Definite"},
+		// All-day events have date-only times with an exclusive end date
+		{Start: "2026-11-02", End: "2026-11-03", Description: "Status"},
+		{Start: "2026-11-03", End: "2026-11-04", Description: "Status"},
 	}}
 
 	events, err := svc.GetYasnoCalendarEvents(context.Background(), "calendar.yasno",
@@ -197,6 +200,7 @@ func TestGetYasnoCalendarEvents_OnlyEventsOfThatDay(t *testing.T) {
 		"2026-11-03T06:00:00+02:00/2026-11-03T10:00:00+02:00",
 		"2026-11-03T23:00:00+02:00/2026-11-04T00:00:00+02:00",
 		"2026-11-02T22:00:00+02:00/2026-11-03T01:00:00+02:00", // crosses midnight into the day
+		"2026-11-03/2026-11-04",
 	}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("events = %v, want %v", got, want)
