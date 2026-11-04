@@ -113,7 +113,7 @@ func TestNotify_PausedSendsNothing(t *testing.T) {
 
 	_ = svc.NotifyPowerOn(ctx, 3600)
 	_ = svc.NotifyPowerOff(ctx, 3600)
-	_ = svc.NotifyYasnoEmergencyShutdown(ctx)
+	_ = svc.NotifyYasnoEmergencyShutdown(ctx, false)
 	_ = svc.NotifySchedule(ctx, nil, time.Now())
 	_ = svc.NotifyScheduleChanged(ctx, "on", nil, nil)
 	_ = svc.NotifyEmergencyEnded(ctx, "on", nil, nil)
@@ -204,5 +204,27 @@ func TestGetYasnoCalendarEvents_OnlyEventsOfThatDay(t *testing.T) {
 	}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("events = %v, want %v", got, want)
+	}
+}
+
+func TestNotifyYasnoEmergencyShutdown_PowerState(t *testing.T) {
+	tests := []struct {
+		name     string
+		powerOff bool
+		want     string
+	}{
+		{"power on warns", false, MsgYasnoEmergencyShutdown + " " + MsgYasnoEmergencyMayCut},
+		{"power already off", true, MsgYasnoEmergencyShutdown},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, sender := newTestService(t, nil)
+			if err := svc.NotifyYasnoEmergencyShutdown(context.Background(), tt.powerOff); err != nil {
+				t.Fatalf("NotifyYasnoEmergencyShutdown: %v", err)
+			}
+			if got := sender.sent[0].Text; got != tt.want {
+				t.Errorf("text = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }

@@ -38,7 +38,7 @@ type Notifier interface {
 	NotifyScheduleChanged(ctx context.Context, scheduleType string, newTime *time.Time, todayEvents []homeassistant.CalendarEvent) error
 	NotifyEmergencyEnded(ctx context.Context, scheduleType string, nextTime *time.Time, todayEvents []homeassistant.CalendarEvent) error
 	NotifySchedule(ctx context.Context, events []homeassistant.CalendarEvent, date time.Time) error
-	NotifyYasnoEmergencyShutdown(ctx context.Context) error
+	NotifyYasnoEmergencyShutdown(ctx context.Context, powerOff bool) error
 	GetScheduledTime(ctx context.Context, sensorID string) (*time.Time, error)
 	GetYasnoCalendarEvents(ctx context.Context, calendarID string, date time.Time) ([]homeassistant.CalendarEvent, error)
 }

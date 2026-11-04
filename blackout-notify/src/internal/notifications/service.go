@@ -244,14 +244,19 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%dгод %dхв", hours, minutes)
 }
 
-// NotifyYasnoEmergencyShutdown sends notification about emergency shutdowns
-func (s *Service) NotifyYasnoEmergencyShutdown(ctx context.Context) error {
+// NotifyYasnoEmergencyShutdown sends notification about emergency shutdowns.
+// The warning that power may go off any moment is omitted when it is already off.
+func (s *Service) NotifyYasnoEmergencyShutdown(ctx context.Context, powerOff bool) error {
 	if s.isPaused(ctx) {
 		slog.Debug("Notifications paused, skipping Yasno emergency notification")
 		return nil
 	}
 
-	return s.sendToAllChats(MsgYasnoEmergencyShutdown)
+	text := MsgYasnoEmergencyShutdown
+	if !powerOff {
+		text += " " + MsgYasnoEmergencyMayCut
+	}
+	return s.sendToAllChats(text)
 }
 
 // GetYasnoCalendarEvents retrieves calendar events that overlap the calendar day of date

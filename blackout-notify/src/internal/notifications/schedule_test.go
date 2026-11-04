@@ -136,6 +136,31 @@ func TestNotifyEmergencyEnded_Format(t *testing.T) {
 	}
 }
 
+func TestNotifyScheduleChanged_NoOutagesToday(t *testing.T) {
+	tests := []struct {
+		name   string
+		events []homeassistant.CalendarEvent
+		want   string
+	}{
+		{"schedule unknown", nil, MsgScheduleUpdate},
+		{"no outages", []homeassistant.CalendarEvent{}, MsgScheduleUpdate + "\n\n" + MsgYasnoNoOutagesLine},
+		{"only possible outages", []homeassistant.CalendarEvent{
+			{Start: "2026-11-02T18:00:00+02:00", End: "2026-11-02T19:00:00+02:00", Description: "Possible"},
+		}, MsgScheduleUpdate + "\n\n" + MsgYasnoNoOutagesLine},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, sender := newScheduleService(t, YasnoStatusScheduleApplies)
+			if err := svc.NotifyScheduleChanged(context.Background(), "off", nil, tt.events); err != nil {
+				t.Fatalf("NotifyScheduleChanged: %v", err)
+			}
+			if got := sender.sent[0].Text; got != tt.want {
+				t.Errorf("message mismatch\ngot:\n%s\nwant:\n%s", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestScheduleFingerprint(t *testing.T) {
 	a := []homeassistant.CalendarEvent{
 		outage("2026-11-02T08:30:00+02:00", "2026-11-02T15:30:00+02:00"),

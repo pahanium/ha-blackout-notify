@@ -14,17 +14,18 @@ const testDebounce = 20 * time.Millisecond
 
 // fakeNotifier records calls instead of sending Telegram messages
 type fakeNotifier struct {
-	mu              sync.Mutex
-	powerOn         []int64
-	powerOff        []int64
-	scheduleChanged []string
-	emergencyEnded  []string
-	schedules       []string // dates (YYYY-MM-DD) of NotifySchedule calls
-	emergency       int
-	scheduled       map[string]*time.Time
-	events          map[string][]homeassistant.CalendarEvent // by date
-	yasnoDates      []time.Time
-	loc             *time.Location // mirrors config.Location for assertions
+	mu                sync.Mutex
+	powerOn           []int64
+	powerOff          []int64
+	scheduleChanged   []string
+	emergencyEnded    []string
+	schedules         []string // dates (YYYY-MM-DD) of NotifySchedule calls
+	emergency         int
+	emergencyPowerOff bool
+	scheduled         map[string]*time.Time
+	events            map[string][]homeassistant.CalendarEvent // by date
+	yasnoDates        []time.Time
+	loc               *time.Location // mirrors config.Location for assertions
 }
 
 func (f *fakeNotifier) NotifyPowerOn(ctx context.Context, d int64) error {
@@ -62,10 +63,11 @@ func (f *fakeNotifier) NotifySchedule(ctx context.Context, events []homeassistan
 	return nil
 }
 
-func (f *fakeNotifier) NotifyYasnoEmergencyShutdown(ctx context.Context) error {
+func (f *fakeNotifier) NotifyYasnoEmergencyShutdown(ctx context.Context, powerOff bool) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.emergency++
+	f.emergencyPowerOff = powerOff
 	return nil
 }
 
