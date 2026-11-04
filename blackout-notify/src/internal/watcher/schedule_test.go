@@ -80,8 +80,26 @@ func TestReconcile_TodayResentWhenChanged(t *testing.T) {
 
 	reconcile(w)
 
-	if schedules, _, _, _ := env.notifier.snapshot(); len(schedules) != 1 {
-		t.Errorf("changed today's schedule must be sent, got %v", schedules)
+	schedules, changed, _, _ := env.notifier.snapshot()
+	if len(schedules) != 0 || len(changed) != 1 || changed[0] != "off" {
+		t.Errorf("changed today's schedule: want one \"schedule updated\" with next off, got schedules=%v changed=%v", schedules, changed)
+	}
+	if got := env.log.sent[todayKey]; got != notifications.ScheduleFingerprint(env.notifier.events[todayKey]) {
+		t.Errorf("new today's schedule must be marked as sent")
+	}
+}
+
+func TestReconcile_EmergencyWhilePowerOff(t *testing.T) {
+	for _, power := range []PowerState{PowerStateOn, PowerStateOff} {
+		w, env := newScheduleWatcher(t, power)
+		w.handleTodayStatus(context.Background(), &homeassistant.Entity{State: notifications.YasnoStatusEmergencyShutdowns})
+
+		env.notifier.mu.Lock()
+		alerts, powerOff := env.notifier.emergency, env.notifier.emergencyPowerOff
+		env.notifier.mu.Unlock()
+		if alerts != 1 || powerOff != (power == PowerStateOff) {
+			t.Errorf("power %s: want 1 alert with powerOff=%v, got %d alerts powerOff=%v", power, power == PowerStateOff, alerts, powerOff)
+		}
 	}
 }
 

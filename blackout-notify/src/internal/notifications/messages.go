@@ -24,7 +24,8 @@ const (
 const (
 	MsgYasnoSchedule          = "📅 *Графік відключень на %s%s*" // завтра сб, 07.02, група 2.1
 	MsgYasnoNoOutages         = "📅 *Графік на %s%s*\n\n✅ Відключень не повинно бути 🌞"
-	MsgYasnoEmergencyShutdown = "🚨 *Аварійні відключення!*\n\nГрафік не діє. Світло може відключитися в будь-який момент."
+	MsgYasnoEmergencyShutdown = "🚨 *Аварійні відключення!*\n\nГрафік не діє."
+	MsgYasnoEmergencyMayCut   = "Світло може відключитися в будь-який момент."
 	MsgYasnoEmergencyEnded    = "✅ *Аварійні відключення скасовані*"
 	MsgYasnoOutageInterval    = "🪫%s - %s" // "🪫07:30 - 14:30"
 )

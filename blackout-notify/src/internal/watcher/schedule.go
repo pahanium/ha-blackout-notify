@@ -97,11 +97,12 @@ func (w *Watcher) handleTodayStatus(ctx context.Context, newState *homeassistant
 		if notify {
 			w.lastEmergencyNotice = time.Now()
 		}
+		powerOff := w.lastState == PowerStateOff
 		w.mu.Unlock()
 
 		slog.Info("Yasno: emergency shutdowns started")
 		if notify {
-			if err := w.notifSvc.NotifyYasnoEmergencyShutdown(ctx); err != nil {
+			if err := w.notifSvc.NotifyYasnoEmergencyShutdown(ctx, powerOff); err != nil {
 				slog.Error("Failed to send Yasno emergency notification", "error", err)
 			}
 		}
@@ -193,8 +194,17 @@ func (w *Watcher) reconcileSchedule(ctx context.Context) {
 			w.markSent(ctx, now, todayFingerprint)
 		}
 	case todayApplies && w.isNewSchedule(ctx, now, todayFingerprint):
-		slog.Info("Yasno: sending today's schedule")
-		if err := w.notifSvc.NotifySchedule(ctx, todayEvents, now); err != nil {
+		var err error
+		if w.wasSent(ctx, now) {
+			// Today's schedule was already announced and changed: same message as a next time change
+			slog.Info("Yasno: today's schedule changed")
+			typ, next := w.relevantNextTime(power)
+			err = w.notifSvc.NotifyScheduleChanged(ctx, typ, next, todayEvents)
+		} else {
+			slog.Info("Yasno: sending today's schedule")
+			err = w.notifSvc.NotifySchedule(ctx, todayEvents, now)
+		}
+		if err != nil {
 			slog.Error("Failed to send today's schedule", "error", err)
 		} else {
 			w.markSent(ctx, now, todayFingerprint)
@@ -385,6 +395,19 @@ func (w *Watcher) isNewSchedule(ctx context.Context, day time.Time, fingerprint 
 		return false
 	}
 	return last != fingerprint
+}
+
+// wasSent reports whether a schedule for day was already announced
+func (w *Watcher) wasSent(ctx context.Context, day time.Time) bool {
+	if w.scheduleLog == nil {
+		return false
+	}
+	last, err := w.scheduleLog.LastSent(ctx, dateKey(day, w.config.Location))
+	if err != nil {
+		slog.Warn("Failed to read schedule log", "error", err)
+		return false
+	}
+	return last != ""
 }
 
 func (w *Watcher) markSent(ctx context.Context, day time.Time, fingerprint string) {
