@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.0] - 2026-11-04
+
+Stable release of everything from the beta channel since 0.4.7 (beta 0.4.8 – 0.8.4, details below).
+
+### ⚠️ Breaking changes
+- **armv7 (32-bit ARM) is no longer supported**: only amd64 and aarch64. Home Assistant no longer publishes armv7 base images
+- **Entity control commands removed**: `/entities`, `/state`, `/turn_on`, `/turn_off`, `/toggle`. The bot is read-only towards Home Assistant; `/status`, `/stats`, `/calendar`, `/chatid` remain
+- **Invalid `timezone` stops the add-on** with a clear error instead of silently using UTC
+- **`polling_interval` option removed**: it was never used; Supervisor drops it from existing configurations
+
+### Added
+- 📅 **Yasno schedules**: new options `yasno_today_sensor_id`, `yasno_tomorrow_sensor_id`, `yasno_calendar_id`; `/calendar` and `/calendar tomorrow` commands
+- 📅 **Schedule messages without repeats**: today's and tomorrow's schedules are sent once in the `/calendar` format; tomorrow's schedule is not repeated at midnight
+- 🚨 **Emergency shutdowns**: one alert when they start, "Аварійні відключення скасовані" with the next on/off time and today's intervals when they end
+- 🔄 **"Графік оновлено"** with today's intervals; one message per Yasno update
+- ⚠️ **Unscheduled outages**: power off/on messages omit the next on/off time when the change doesn't match the schedule
+
+### Changed
+- 🇺🇦 Bot replies in Ukrainian
+- 📝 Structured logs (`log/slog`)
+- 🔒 Go 1.26, Alpine 3.24 base images, updated dependencies
+
+### Fixed
+- 🐛 Lost or wrong power states after quick changes and WebSocket reconnects
+- 🐛 Day boundaries (midnight, DST) use the configured timezone
+- 🐛 `/stats` crash without power monitoring
+- 🐛 Add-on not halting on failure (`finish` script)
+
+### Upgrade note
+- If you used a Home Assistant automation that posted "Сьогодні: / Завтра:" Yasno schedules, disable it: the add-on now sends them. On the first start the current schedules are recorded without sending
+
 ## [0.8.4] - 2026-11-04
 
 ### Changed
