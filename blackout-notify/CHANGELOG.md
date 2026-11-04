@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - 🚨 **Emergency shutdowns while power is off**: The message is just "Графік не діє", without "Світло може відключитися в будь-який момент"
 - 🔄 **Today's schedule changed**: Sent as "Графік оновлено" with the next on/off time and today's intervals instead of the full "Графік відключень на сьогодні" message. The full message is still sent when today's schedule wasn't announced before
+- ✅ **No outages left today**: "Графік оновлено" and "Аварійні відключення скасовані" show "Відключень не повинно бути 🌞" when today's schedule has no outages
 
 ## [0.8.3] - 2026-11-03
 

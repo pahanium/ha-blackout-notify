@@ -173,7 +173,8 @@ func (w *Watcher) reconcileSchedule(ctx context.Context) {
 			slog.Error("Failed to get today's Yasno calendar events", "error", err)
 			todayApplies = false
 		} else {
-			todayEvents = events
+			// Non-nil even without events: the schedule is known and has no outages
+			todayEvents = append([]homeassistant.CalendarEvent{}, events...)
 		}
 	}
 	todayFingerprint := notifications.ScheduleFingerprint(todayEvents)

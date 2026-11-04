@@ -160,7 +160,8 @@ func (s *Service) formatNextTime(scheduleType string, t *time.Time, now time.Tim
 	return fmt.Sprintf(format, formatDuration(t.Sub(now)), t.In(s.location).Format("15:04")) + "\n" + MsgScheduleSource
 }
 
-// buildScheduleUpdate renders a header, the next on/off time and today's outage intervals
+// buildScheduleUpdate renders a header, the next on/off time and today's outage intervals.
+// todayEvents nil means today's schedule is unknown; empty means it is known and has no outages.
 func (s *Service) buildScheduleUpdate(header, scheduleType string, nextTime *time.Time, todayEvents []homeassistant.CalendarEvent) string {
 	var sb strings.Builder
 	sb.WriteString(header)
@@ -169,6 +170,8 @@ func (s *Service) buildScheduleUpdate(header, scheduleType string, nextTime *tim
 	}
 	if lines := s.formatOutageLines(todayEvents); lines != "" {
 		sb.WriteString("\n\n" + lines)
+	} else if todayEvents != nil {
+		sb.WriteString("\n\n" + MsgYasnoNoOutagesLine)
 	}
 	return sb.String()
 }
