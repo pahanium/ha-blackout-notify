@@ -81,16 +81,28 @@ func ScheduleFingerprint(events []homeassistant.CalendarEvent) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-// formatOutageLines renders confirmed outages as "🪫HH:MM - HH:MM" lines
-func (s *Service) formatOutageLines(events []homeassistant.CalendarEvent) string {
-	var sb strings.Builder
-	for i, o := range definiteOutages(events, s.location) {
-		if i > 0 {
-			sb.WriteString("\n")
+// formatOutageLines renders confirmed outages of day as "🪫HH:MM - HH:MM" lines. Outages crossing
+// midnight are cut to the day, e.g. 20:30-02:00 from the previous evening is shown as 00:00 - 02:00.
+func (s *Service) formatOutageLines(events []homeassistant.CalendarEvent, day time.Time) string {
+	day = day.In(s.location)
+	dayStart := time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, s.location)
+	dayEnd := dayStart.AddDate(0, 0, 1)
+
+	var lines []string
+	for _, o := range definiteOutages(events, s.location) {
+		start, end := o.Start, o.End
+		if start.Before(dayStart) {
+			start = dayStart
 		}
-		fmt.Fprintf(&sb, MsgYasnoOutageInterval, o.Start.Format("15:04"), o.End.Format("15:04"))
+		if end.After(dayEnd) {
+			end = dayEnd
+		}
+		if !start.Before(end) {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf(MsgYasnoOutageInterval, start.Format("15:04"), end.In(s.location).Format("15:04")))
 	}
-	return sb.String()
+	return strings.Join(lines, "\n")
 }
 
 // isScheduledPowerChange reports whether a power change at now matches the outage schedule.
@@ -165,10 +177,11 @@ func (s *Service) formatNextTime(scheduleType string, t *time.Time, now time.Tim
 func (s *Service) buildScheduleUpdate(header, scheduleType string, nextTime *time.Time, todayEvents []homeassistant.CalendarEvent) string {
 	var sb strings.Builder
 	sb.WriteString(header)
-	if next := s.formatNextTime(scheduleType, nextTime, time.Now()); next != "" {
+	now := s.now()
+	if next := s.formatNextTime(scheduleType, nextTime, now); next != "" {
 		sb.WriteString("\n\n" + next)
 	}
-	if lines := s.formatOutageLines(todayEvents); lines != "" {
+	if lines := s.formatOutageLines(todayEvents, now); lines != "" {
 		sb.WriteString("\n\n" + lines)
 	} else if todayEvents != nil {
 		sb.WriteString("\n\n" + MsgYasnoNoOutagesLine)
