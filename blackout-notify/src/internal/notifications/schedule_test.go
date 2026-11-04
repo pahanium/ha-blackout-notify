@@ -104,7 +104,9 @@ func TestNotifyPowerOff_AnomalyOmitsNextTime(t *testing.T) {
 
 func TestNotifyScheduleChanged_Format(t *testing.T) {
 	svc, sender := newScheduleService(t, YasnoStatusScheduleApplies)
-	next := time.Now().Add(2*time.Hour + 30*time.Minute)
+	now := time.Date(2026, 11, 2, 6, 0, 0, 0, svc.location)
+	svc.now = func() time.Time { return now }
+	next := now.Add(2*time.Hour + 30*time.Minute)
 	events := []homeassistant.CalendarEvent{
 		outage("2026-11-02T08:30:00+02:00", "2026-11-02T15:30:00+02:00"),
 		outage("2026-11-02T00:00:00+02:00", "2026-11-02T03:30:00+02:00"),
@@ -117,13 +119,14 @@ func TestNotifyScheduleChanged_Format(t *testing.T) {
 	want := MsgScheduleUpdate + "\n\n" +
 		"📅 Відключення через *2год 30хв* (" + next.In(svc.location).Format("15:04") + ")\n" + MsgScheduleSource + "\n\n" +
 		"🪫00:00 - 03:30\n🪫08:30 - 15:30"
-	if got := sender.sent[0].Text; got != want && got != strings.Replace(want, "2год 30хв", "2год 29хв", 1) {
+	if got := sender.sent[0].Text; got != want {
 		t.Errorf("message mismatch\ngot:\n%s\nwant:\n%s", got, want)
 	}
 }
 
 func TestNotifyEmergencyEnded_Format(t *testing.T) {
 	svc, sender := newScheduleService(t, YasnoStatusScheduleApplies)
+	svc.now = func() time.Time { return time.Date(2026, 11, 2, 12, 0, 0, 0, svc.location) }
 	events := []homeassistant.CalendarEvent{outage("2026-11-02T19:00:00+02:00", "2026-11-03T00:00:00+02:00")}
 
 	if err := svc.NotifyEmergencyEnded(context.Background(), "on", nil, events); err != nil {
@@ -158,6 +161,22 @@ func TestNotifyScheduleChanged_NoOutagesToday(t *testing.T) {
 				t.Errorf("message mismatch\ngot:\n%s\nwant:\n%s", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestFormatYasnoSchedule_OutagesCutToDay(t *testing.T) {
+	svc, _ := newScheduleService(t, YasnoStatusScheduleApplies)
+	events := []homeassistant.CalendarEvent{
+		outage("2026-11-04T20:30:00+02:00", "2026-11-05T02:00:00+02:00"),
+		outage("2026-11-05T06:00:00+02:00", "2026-11-05T13:00:00+02:00"),
+		outage("2026-11-05T16:00:00+02:00", "2026-11-06T01:00:00+02:00"),
+	}
+
+	text := svc.FormatYasnoSchedule(events, time.Date(2026, 11, 5, 0, 0, 0, 0, svc.location), "")
+
+	want := "🪫00:00 - 02:00\n🪫06:00 - 13:00\n🪫16:00 - 00:00"
+	if !strings.HasSuffix(text, "\n\n"+want) {
+		t.Errorf("outages must be cut to the day\ngot:\n%s\nwant lines:\n%s", text, want)
 	}
 }
 

@@ -382,7 +382,7 @@ func (s *Service) FormatYasnoSchedule(events []homeassistant.CalendarEvent, date
 		groupStr = fmt.Sprintf(", %s", groupName)
 	}
 
-	lines := s.formatOutageLines(events)
+	lines := s.formatOutageLines(events, date)
 	if lines == "" {
 		return fmt.Sprintf(MsgYasnoNoOutages, dateStr, groupStr)
 	}

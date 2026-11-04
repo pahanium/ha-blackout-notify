@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.1] - 2026-11-04
+
+### Fixed
+- 📅 **Outages crossing midnight**: An outage that starts the previous evening (e.g. 20:30 - 02:00) was shown with its real start in the next day's schedule. Intervals are now cut to the day: 00:00 - 02:00 tomorrow, and an outage lasting past midnight ends at 00:00 today
+
 ## [0.9.0] - 2026-11-04
 
 Stable release of everything from the beta channel since 0.4.7 (beta 0.4.8 – 0.8.4, details below).
