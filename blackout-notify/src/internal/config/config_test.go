@@ -10,13 +10,11 @@ func TestLoad(t *testing.T) {
 	os.Setenv("TELEGRAM_TOKEN", "test_token")
 	os.Setenv("HA_TOKEN", "ha_test_token")
 	os.Setenv("LOG_LEVEL", "debug")
-	os.Setenv("POLLING_INTERVAL", "60")
 	os.Setenv("ALLOWED_CHAT_IDS", "123,456,789")
 	defer func() {
 		os.Unsetenv("TELEGRAM_TOKEN")
 		os.Unsetenv("HA_TOKEN")
 		os.Unsetenv("LOG_LEVEL")
-		os.Unsetenv("POLLING_INTERVAL")
 		os.Unsetenv("ALLOWED_CHAT_IDS")
 	}()
 
@@ -35,10 +33,6 @@ func TestLoad(t *testing.T) {
 
 	if cfg.LogLevel != "debug" {
 		t.Errorf("LogLevel = %v, want debug", cfg.LogLevel)
-	}
-
-	if cfg.PollingInterval != 60 {
-		t.Errorf("PollingInterval = %v, want 60", cfg.PollingInterval)
 	}
 
 	if len(cfg.AllowedChatIDs) != 3 {
@@ -139,6 +133,121 @@ func TestParseChatIDs(t *testing.T) {
 				if got[i] != tt.want[i] {
 					t.Errorf("parseChatIDs(%q)[%d] = %d, want %d", tt.input, i, got[i], tt.want[i])
 				}
+			}
+		})
+	}
+}
+
+func TestIsYasnoMonitoringEnabled(t *testing.T) {
+	tests := []struct {
+		name                  string
+		yasnoCalendarID       string
+		yasnoTodaySensorID    string
+		yasnoTomorrowSensorID string
+		notificationChatIDs   []int64
+		want                  bool
+	}{
+		{
+			name:                  "fully configured",
+			yasnoCalendarID:       "calendar.yasno",
+			yasnoTodaySensorID:    "sensor.yasno_today",
+			yasnoTomorrowSensorID: "sensor.yasno_tomorrow",
+			notificationChatIDs:   []int64{123},
+			want:                  true,
+		},
+		{
+			name:                  "only tomorrow sensor",
+			yasnoCalendarID:       "calendar.yasno",
+			yasnoTodaySensorID:    "",
+			yasnoTomorrowSensorID: "sensor.yasno_tomorrow",
+			notificationChatIDs:   []int64{123},
+			want:                  true,
+		},
+		{
+			name:                  "only today sensor",
+			yasnoCalendarID:       "calendar.yasno",
+			yasnoTodaySensorID:    "sensor.yasno_today",
+			yasnoTomorrowSensorID: "",
+			notificationChatIDs:   []int64{123},
+			want:                  true,
+		},
+		{
+			name:                  "no calendar",
+			yasnoCalendarID:       "",
+			yasnoTodaySensorID:    "sensor.yasno_today",
+			yasnoTomorrowSensorID: "sensor.yasno_tomorrow",
+			notificationChatIDs:   []int64{123},
+			want:                  false,
+		},
+		{
+			name:                  "no sensors",
+			yasnoCalendarID:       "calendar.yasno",
+			yasnoTodaySensorID:    "",
+			yasnoTomorrowSensorID: "",
+			notificationChatIDs:   []int64{123},
+			want:                  false,
+		},
+		{
+			name:                  "no notification chats",
+			yasnoCalendarID:       "calendar.yasno",
+			yasnoTodaySensorID:    "sensor.yasno_today",
+			yasnoTomorrowSensorID: "sensor.yasno_tomorrow",
+			notificationChatIDs:   []int64{},
+			want:                  false,
+		},
+		{
+			name:                  "nothing configured",
+			yasnoCalendarID:       "",
+			yasnoTodaySensorID:    "",
+			yasnoTomorrowSensorID: "",
+			notificationChatIDs:   []int64{},
+			want:                  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				YasnoCalendarID:       tt.yasnoCalendarID,
+				YasnoTodaySensorID:    tt.yasnoTodaySensorID,
+				YasnoTomorrowSensorID: tt.yasnoTomorrowSensorID,
+				NotificationChatIDs:   tt.notificationChatIDs,
+			}
+			if got := cfg.IsYasnoMonitoringEnabled(); got != tt.want {
+				t.Errorf("IsYasnoMonitoringEnabled() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoadTimezone(t *testing.T) {
+	tests := []struct {
+		name    string
+		env     string
+		want    string
+		wantErr bool
+	}{
+		{name: "default", env: "", want: "Europe/Kyiv"},
+		{name: "custom", env: "Europe/Warsaw", want: "Europe/Warsaw"},
+		{name: "invalid", env: "Mars/Olympus", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("TIMEZONE", tt.env)
+
+			cfg, err := Load()
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error for invalid timezone")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if cfg.Location == nil || cfg.Location.String() != tt.want {
+				t.Errorf("Location = %v, want %s", cfg.Location, tt.want)
 			}
 		})
 	}

@@ -4,9 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"time"
-
-	"github.com/yourusername/haaddon/telegram-bot/internal/logger"
 )
 
 // Recorder handles recording power state changes
@@ -52,9 +51,9 @@ func (r *Recorder) RecordStateChange(ctx context.Context, state string, changedA
 		durationSeconds = &duration
 		prevState = lastEvent.State
 		prevDuration = duration
-		logger.Debug("State change detected: %s -> %s, previous state lasted %d seconds", lastEvent.State, state, duration)
+		slog.Debug("State change detected", "from", lastEvent.State, "to", state, "previous_duration_sec", duration)
 	} else {
-		logger.Debug("First state change recorded: %s", state)
+		slog.Debug("First state change recorded", "state", state)
 	}
 
 	// Insert new event
@@ -68,7 +67,7 @@ func (r *Recorder) RecordStateChange(ctx context.Context, state string, changedA
 		return "", 0, fmt.Errorf("failed to insert event: %w", err)
 	}
 
-	logger.Debug("Recorded power state change: entity=%s, state=%s, time=%s", r.entityID, state, changedAt.Format(time.RFC3339))
+	slog.Debug("Recorded power state change", "entity", r.entityID, "state", state, "at", changedAt.Format(time.RFC3339))
 	return prevState, prevDuration, nil
 }
 

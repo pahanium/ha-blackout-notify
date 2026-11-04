@@ -66,10 +66,11 @@ func (q *Query) GetStatsForPeriod(ctx context.Context, startTime, endTime time.T
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 
-		if state == "on" {
+		switch state {
+		case "on":
 			stats.OnCount = count
 			stats.TotalOnSeconds = totalSeconds
-		} else if state == "off" {
+		case "off":
 			stats.OffCount = count
 			stats.TotalOffSeconds = totalSeconds
 		}
@@ -123,9 +124,10 @@ func (q *Query) addCurrentStateDuration(ctx context.Context, stats *PeriodStats)
 	// If the last event is within our period, calculate duration until endTime
 	if changedAt.After(stats.StartTime) {
 		duration := int64(stats.EndTime.Sub(changedAt).Seconds())
-		if state == "on" {
+		switch state {
+		case "on":
 			stats.TotalOnSeconds += duration
-		} else if state == "off" {
+		case "off":
 			stats.TotalOffSeconds += duration
 		}
 	}

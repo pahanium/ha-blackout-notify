@@ -1,9 +1,11 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Config holds all application settings
@@ -17,8 +19,7 @@ type Config struct {
 	HAToken  string
 
 	// General settings
-	LogLevel        string
-	PollingInterval int
+	LogLevel string
 
 	// Power monitoring settings
 	NotificationChatIDs []int64 // Chat IDs for power notifications (can be channels)
@@ -30,8 +31,14 @@ type Config struct {
 	// Statistics settings (always enabled)
 	StatsDBPath string // Path to SQLite database
 
-	// Timezone for formatting
+	// Yasno schedule monitoring settings
+	YasnoTodaySensorID    string // Entity ID of Yasno today status sensor
+	YasnoTomorrowSensorID string // Entity ID of Yasno tomorrow status sensor
+	YasnoCalendarID       string // Entity ID of Yasno calendar for schedule events
+
+	// Timezone name and its location, loaded once in Load()
 	Timezone string
+	Location *time.Location
 }
 
 const (
@@ -42,11 +49,10 @@ const (
 // Load loads configuration from environment variables
 func Load() (*Config, error) {
 	cfg := &Config{
-		TelegramToken:   os.Getenv("TELEGRAM_TOKEN"),
-		HAApiURL:        getEnvOrDefault("HA_API_URL", "http://supervisor/core/api"),
-		HAToken:         os.Getenv("HA_TOKEN"),
-		LogLevel:        getEnvOrDefault("LOG_LEVEL", "info"),
-		PollingInterval: getEnvAsInt("POLLING_INTERVAL", 30),
+		TelegramToken: os.Getenv("TELEGRAM_TOKEN"),
+		HAApiURL:      getEnvOrDefault("HA_API_URL", "http://supervisor/core/api"),
+		HAToken:       os.Getenv("HA_TOKEN"),
+		LogLevel:      getEnvOrDefault("LOG_LEVEL", "info"),
 
 		// Power monitoring settings
 		WatchedEntityID: os.Getenv("WATCHED_ENTITY_ID"),
@@ -57,8 +63,19 @@ func Load() (*Config, error) {
 		// Statistics settings (always enabled)
 		StatsDBPath: getEnvOrDefault("STATS_DB_PATH", DefaultStatsDBPath),
 
+		// Yasno schedule monitoring settings
+		YasnoTodaySensorID:    os.Getenv("YASNO_TODAY_SENSOR_ID"),
+		YasnoTomorrowSensorID: os.Getenv("YASNO_TOMORROW_SENSOR_ID"),
+		YasnoCalendarID:       os.Getenv("YASNO_CALENDAR_ID"),
+
 		Timezone: getEnvOrDefault("TIMEZONE", "Europe/Kyiv"),
 	}
+
+	loc, err := time.LoadLocation(cfg.Timezone)
+	if err != nil {
+		return nil, fmt.Errorf("invalid timezone %q: %w", cfg.Timezone, err)
+	}
+	cfg.Location = loc
 
 	// Parse allowed chat IDs
 	chatIDsStr := os.Getenv("ALLOWED_CHAT_IDS")
@@ -100,18 +117,17 @@ func (c *Config) IsPowerMonitoringEnabled() bool {
 	return c.WatchedEntityID != "" && len(c.NotificationChatIDs) > 0
 }
 
+// IsYasnoMonitoringEnabled checks if Yasno schedule monitoring is configured
+func (c *Config) IsYasnoMonitoringEnabled() bool {
+	hasCalendar := c.YasnoCalendarID != ""
+	hasSensors := c.YasnoTodaySensorID != "" || c.YasnoTomorrowSensorID != ""
+	hasNotifications := len(c.NotificationChatIDs) > 0
+	return hasCalendar && hasSensors && hasNotifications
+}
+
 func getEnvOrDefault(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
-	}
-	return defaultValue
-}
-
-func getEnvAsInt(key string, defaultValue int) int {
-	if value := os.Getenv(key); value != "" {
-		if intValue, err := strconv.Atoi(value); err == nil {
-			return intValue
-		}
 	}
 	return defaultValue
 }

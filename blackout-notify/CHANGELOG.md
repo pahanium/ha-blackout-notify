@@ -2,54 +2,244 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.4.7] - 2026-02-21
+## [0.9.0] - 2026-11-04
+
+Stable release of everything from the beta channel since 0.4.7 (beta 0.4.8 – 0.8.4, details below).
+
+### ⚠️ Breaking changes
+- **armv7 (32-bit ARM) is no longer supported**: only amd64 and aarch64. Home Assistant no longer publishes armv7 base images
+- **Entity control commands removed**: `/entities`, `/state`, `/turn_on`, `/turn_off`, `/toggle`. The bot is read-only towards Home Assistant; `/status`, `/stats`, `/calendar`, `/chatid` remain
+- **Invalid `timezone` stops the add-on** with a clear error instead of silently using UTC
+- **`polling_interval` option removed**: it was never used; Supervisor drops it from existing configurations
+
+### Added
+- 📅 **Yasno schedules**: new options `yasno_today_sensor_id`, `yasno_tomorrow_sensor_id`, `yasno_calendar_id`; `/calendar` and `/calendar tomorrow` commands
+- 📅 **Schedule messages without repeats**: today's and tomorrow's schedules are sent once in the `/calendar` format; tomorrow's schedule is not repeated at midnight
+- 🚨 **Emergency shutdowns**: one alert when they start, "Аварійні відключення скасовані" with the next on/off time and today's intervals when they end
+- 🔄 **"Графік оновлено"** with today's intervals; one message per Yasno update
+- ⚠️ **Unscheduled outages**: power off/on messages omit the next on/off time when the change doesn't match the schedule
+
+### Changed
+- 🇺🇦 Bot replies in Ukrainian
+- 📝 Structured logs (`log/slog`)
+- 🔒 Go 1.26, Alpine 3.24 base images, updated dependencies
 
 ### Fixed
-- 🐛 **Schedule change notifications**: Suppress notifications when schedule updates for a different day
-  - Added date comparison to prevent spam when evening schedule updates reflect tomorrow's schedule
-  - Notifications only sent when schedule changes for the current day
-  - Example scenario: At 15:20, schedule changes from 13:30 (today, already passed) → 07:30 (tomorrow)
-    - Before: Notification sent at 15:20 about tomorrow's 07:30 schedule
-    - After: Notification suppressed because new schedule is for tomorrow, not today
-  - Prevents unnecessary notifications 2+ hours before actual power changes
-  - Uses timezone-aware date comparison for correct handling across midnight boundary
+- 🐛 Lost or wrong power states after quick changes and WebSocket reconnects
+- 🐛 Day boundaries (midnight, DST) use the configured timezone
+- 🐛 `/stats` crash without power monitoring
+- 🐛 Add-on not halting on failure (`finish` script)
 
-### Technical
-- Added `GetLocation()` method to `notifications.Service` for timezone access
-- Enhanced `handleScheduleChange()` in watcher with date comparison logic
-- Date comparison uses `Truncate(24 * time.Hour)` for day-level equality check
-- Improved debug logging to show schedule dates when suppressing notifications
+### Upgrade note
+- If you used a Home Assistant automation that posted "Сьогодні: / Завтра:" Yasno schedules, disable it: the add-on now sends them. On the first start the current schedules are recorded without sending
+
+## [0.8.4] - 2026-11-04
+
+### Changed
+- 🚨 **Emergency shutdowns while power is off**: The message is just "Графік не діє", without "Світло може відключитися в будь-який момент"
+- 🔄 **Today's schedule changed**: Sent as "Графік оновлено" with the next on/off time and today's intervals instead of the full "Графік відключень на сьогодні" message. The full message is still sent when today's schedule wasn't announced before
+- ✅ **No outages left today**: "Графік оновлено" and "Аварійні відключення скасовані" show "Відключень не повинно бути 🌞" when today's schedule has no outages
+
+## [0.8.3] - 2026-11-03
+
+### Fixed
+- 📅 **"No outages" for tomorrow at midnight**: Right after midnight Yasno still reports yesterday's "tomorrow" status until it refreshes, while tomorrow's calendar is empty, so "Відключень не повинно бути" was sent for a day without a published schedule. A tomorrow status that hasn't changed since before midnight is now ignored
+
+## [0.8.2] - 2026-11-02
+
+### Fixed
+- 📅 **All-day calendar events**: Events without a time (date only) were logged as "Failed to parse event start time" warnings and dropped. They are now parsed as whole days
+
+## [0.8.1] - 2026-11-02
+
+### Fixed
+- 📅 **Previous day's outage in the schedule**: An outage ending exactly at midnight (e.g. 18:30 - 00:00) was listed as the first outage of the next day's schedule and in `/calendar`. Only outages that overlap the day are shown now. Tomorrow's schedule already sent with this extra line will be sent once more, corrected
+
+## [0.8.0] - 2026-11-02
+
+### Changed
+- 📅 **Schedule messages without repeats**: Today's and tomorrow's schedules are sent in the `/calendar` format. Each sent schedule is remembered per date, so tomorrow's schedule is not sent again when it becomes today's at midnight. Today's schedule is sent if it wasn't announced yesterday or if it changed
+- 🔄 **"Графік оновлено"** now lists today's outage intervals below the next on/off time
+- ✅ **End of emergency shutdowns**: New message "Аварійні відключення скасовані" with the next on/off time and today's intervals. The start of emergency shutdowns is still a single alert without schedule
+- 🧮 **One message per schedule update**: Events from all schedule sensors are combined, so a Yasno update produces one message
+- ⚠️ **Unscheduled outages**: Power off/on messages no longer show the next on/off time when the change doesn't match the schedule (off more than 30 min before a planned outage or outside it, back within 30 min after a planned outage started, or during emergency shutdowns)
+
+### Upgrade note
+- The Home Assistant automation that posted "Сьогодні: / Завтра:" schedules can be disabled; the add-on now sends these. On the first start the current schedules are recorded without sending
+
+## [0.7.0] - 2026-11-02
+
+### Removed
+- ⚠️ **armv7 (32-bit ARM)**: No longer supported; Home Assistant stopped publishing armv7 base images. Supported: amd64, aarch64
+
+### Changed
+- 🇺🇦 **Bot replies in Ukrainian**: All command responses (`/start`, `/help`, `/status`, `/stats`, `/calendar`, errors) are now in Ukrainian
+- 🕐 **Timezone loaded once**: An invalid `timezone` now stops the add-on with a clear error instead of silently using UTC; timezone data is built into the binary
+- 📝 **Structured logs**: Logs use Go's `log/slog`, e.g. `level=INFO msg="Power state changed" from=on to=off`
+
+### Fixed
+- 🐛 **Unknown command reply not delivered**: Commands with `_` (like the removed `/turn_on`) broke Markdown, so Telegram rejected the reply
+- 🐛 **"Tomorrow" on DST change days**: `/calendar tomorrow` and the tomorrow schedule message now use calendar days instead of +24h
+
+## [0.6.1] - 2026-10-31
+
+### Fixed
+- 🐛 **Lost power changes**: Debounce dropped any change within 5s of the previous one, so a quick on → off → on → off could leave the bot stuck in the wrong state. Now a state is applied once it stays stable for 5s, and the outage time is taken from the first event
+- 🐛 **Outage during reconnect**: on → unavailable → off is now reported (previously treated as "initial state" and skipped). off → unavailable → off still keeps the outage duration
+- 🐛 **"Today" check near midnight**: Schedule notifications compared days at UTC midnight; now uses the configured timezone
+- 🐛 **Tomorrow's Yasno schedule lost**: A change of the "today" sensor blocked the "tomorrow" sensor for 30s; debounce is now per sensor. Tomorrow's date is computed in the configured timezone
+- 🐛 **Stale schedule times**: Next on/off sensor updates arriving together no longer block each other
+
+### Changed
+- 🧪 **Tests run real code**: Watcher and notifications depend on small interfaces and are tested with fakes (the old watcher tests exercised a copy of the logic)
+
+## [0.6.0] - 2026-10-31
+
+### Removed
+- ⚠️ **Entity control commands**: `/entities`, `/state`, `/turn_on`, `/turn_off`, `/toggle` are removed. The bot is now read-only towards Home Assistant (`/status`, `/stats`, `/calendar`, `/chatid` remain)
+- 🧹 **`polling_interval` option**: Was never used; Supervisor ignores it in existing configurations
+
+### Fixed
+- 🐛 **Add-on shutdown on failure**: `finish` script now follows the Home Assistant template and halts the add-on with the service's exit code (previously sent `SIGTERM` to the PID equal to the exit code)
+
+### Changed
+- 🛠️ **Local development**: `Makefile` (`make help`), `.env` is found in the current directory or any parent, dev Docker Compose keeps the stats DB in `.data/` and no longer restart-loops; `scripts/build.sh` removed
+- 🔧 **Go module path**: `github.com/pahanium/ha-blackout-notify`
+
+## [0.5.3] - 2026-10-31
+
+### Fixed
+Fixes from the stable branch (released there as 0.4.6 and 0.4.7) that were missing in beta:
+- 🐛 **Incorrect outage duration after WebSocket reconnect**: Transitions to/from `unknown` (off → unknown → off) are no longer recorded in statistics, so a reconnect during an outage no longer resets the duration
+- 🐛 **Schedule change notifications for another day**: "Schedule updated" is no longer sent when the next on/off time moves to a different day
+
+## [0.5.2] - 2026-10-31
+
+### Security
+- 🔒 **Go 1.26**: Build with Go 1.26 (Go 1.24 no longer receives security fixes); `govulncheck` reports no vulnerabilities
+- 🔒 **Base images**: Home Assistant base images updated from Alpine 3.18 (EOL) to 3.24 (amd64, aarch64) and 3.22 (armv7, last published)
+- 📦 **Dependencies**: Updated `gorilla/websocket` 1.5.3, `modernc.org/sqlite` 1.61.1 and transitive modules; dropped vulnerable `golang.org/x/net` 0.17.0
+
+### Changed
+- 🔧 **CI**: Go version taken from `go.mod`, base images from `build.yaml`; GitHub Actions updated to current majors; golangci-lint v2 with `.golangci.yml`
+
+## [0.5.1] - 2026-10-31
+
+### Fixed
+- 🐛 **`/stats` crash without power monitoring**: The command no longer panics when `watched_entity_id` is empty; it replies that statistics are not available
+
+### Changed
+- 🔧 **Go 1.24 everywhere**: CI and `Dockerfile.dev` now use Go 1.24, matching `go.mod` and the production Dockerfile
+- 📝 **Docs**: Condensed `AGENTS.md`, added `CLAUDE.md`, fixed the add-on entry script path in docs, added Yasno variables to `.env.example`
+
+## [0.5.0] - 2026-02-21
+
+### Added
+- ✨ **New `/calendar` command**: View Yasno schedule directly in Telegram
+  - `/calendar` - shows today's schedule
+  - `/calendar tomorrow` - shows tomorrow's schedule
+  - Uses same formatting as automatic notifications
+  - Shows group name extracted from calendar entity ID
+  - Filters only "Definite" outages (confirmed schedule)
+
+### Changed
+- 🔄 **Unified group name detection**: Both automatic notifications and `/calendar` command now extract group name from calendar entity ID
+  - Example: `calendar.yasno_kiiv_2_1_planned_outages` → "група 2.1"
+  - Removed old `GetYasnoGroupName()` method that read from sensor attributes
+  - More reliable than sensor attributes which may be empty
+  - Works for any spelling: kiiv, kyiv, kiev
+
+### Improved
+- 📝 **Better debug logging**: Added logging for group name extraction from calendar ID
+- 🧪 **Test coverage**: Added unit tests for `ExtractYasnoGroupFromCalendarID()` function
+
+## [0.4.9] - 2026-02-14
+
+### Fixed
+- 🐛 **Calendar API response parsing**: Support both array and map response formats
+  - Fixed error: "json: cannot unmarshal array into Go value of type struct"
+  - Calendar API with `?return_response=true` returns direct array of events
+  - Added fallback parsing for legacy map format `{"calendar.entity_id": {"events": [...]}}`
+  - Added test case for array response format
+  - Improved error messages with response body for debugging
+
+## [0.4.8] - 2026-02-13
+
+### Fixed
+- 🐛 **Calendar API query parameter**: Added `?return_response=true` to calendar service calls
+  - Fixed error: "Service call requires responses but caller did not ask for responses"
+  - Calendar events now properly retrieved for Yasno schedule notifications
+  - Affects tomorrow schedule announcements with planned outage times
+
+## [0.4.7] - 2026-02-08
+
+### Fixed
+- 🐛 **Yasno sensor state reading**: Fixed incorrect attribute lookup for Yasno schedule sensors
+  - Yasno sensors store schedule state in `sensor.state` (enum type), not in `attributes`
+  - Changed `handleYasnoTodayChange()` to read from `newState.State` directly
+  - Changed `handleYasnoTomorrowChange()` to read from `newState.State` directly
+  - Removed unused `GetYasnoScheduleState()` method that was looking in wrong place
+  - Fixes error: "attribute tomorrow_schedule_state not found or not a string"
+  - Sensor state enum values: `schedule_applies`, `waiting_for_schedule`, `emergency_shutdowns`, `unknown`
 
 ## [0.4.6] - 2026-02-07
 
-### Fixed
-- 🐛 **CRITICAL: Incorrect outage duration calculation when WebSocket reconnects**
-  - **Bug description**: When Home Assistant WebSocket connection was lost and restored during a power outage, the bot would record intermediate "unknown" state transitions (off → unknown → off)
-  - This caused duration calculations to reset, showing incorrect outage times in notifications
-  - **Real-world impact**: 13-hour outage was incorrectly reported as 5 hours 20 minutes
-  - **Root cause**: Statistics recorder was tracking "unknown" states, which broke the duration chain
-  - **Solution**: State transitions involving "unknown" are now skipped for both statistics recording and notifications
-  - Affected transitions: `off → unknown`, `unknown → off`, `on → unknown`, `unknown → on`
-  - Statistics and notifications now use identical logic: only real power state changes (on ↔ off) are tracked
-
 ### Added
-- 🧪 **Comprehensive test coverage for WebSocket reconnect scenarios**
-  - New test: `TestHandleStateChange_WebSocketReconnect` simulates the exact bug scenario
-  - Integration test: `TestDurationCalculation_WebSocketReconnect` verifies fix with real database
-  - Tests cover: normal flow, multiple outages, and reconnect edge cases
+- 📅 **Yasno schedule monitoring and notifications**: Integration with Yasno power grid schedule sensors
+  - Monitor `sensor.yasno_*_status_today` for emergency shutdown detection
+  - Monitor `sensor.yasno_*_status_tomorrow` for daily schedule announcements
+  - Automatic calendar event fetching via `calendar.get_events` service
+  - Notifications show outage intervals in format: "🪫00:00 - 04:00"
+  - Support for group name extraction from sensor attributes (e.g., "група 2.1")
+  - Configurable via add-on UI: `yasno_today_sensor_id`, `yasno_tomorrow_sensor_id`, `yasno_calendar_id`
+  - Messages in Ukrainian with date formatting: "завтра сб, 07.02"
+  - Filter events with `description="Definite"` to show only confirmed outages
 
 ### Changed
-- 🔧 **Improved logging for state transitions**
-  - Now logs when "unknown" transitions are skipped: "State transition from X to unknown, skipping recording and notification (connection issue)"
-  - Clearer distinction between initial state detection and connection issues
-  - Debug logs show when unknown states are being ignored
+- 🔕 **Quiet hours support**: Schedule notifications sent between 23:00-06:00 disable sound
+  - Applies to Yasno tomorrow schedule announcements
+  - User still receives notification but without disturbing sound/vibration
+  - Regular power on/off notifications not affected
+- ⏱️ **Enhanced debouncing**: Separate 30-second debounce for Yasno sensors
+  - Prevents notification spam when sensors update frequently
+  - Power monitoring keeps 5-second debounce for faster response
 
 ### Technical
-- Modified `watcher.handleStateChange()` to skip statistics recording for "unknown" transitions
-  - Moved `previousState == PowerStateUnknown` check before stats recording (was after)
-  - Added `newPowerState == PowerStateUnknown` check to skip recording "to unknown" transitions
-  - Both checks perform early return, preventing database writes
-- Statistics recording and notification logic now fully synchronized
+- New package: `internal/homeassistant/calendar.go` with Calendar API client
+  - `GetCalendarEvents()` method for fetching calendar events
+  - Support for Home Assistant `calendar.get_events` service via POST
+  - Response parsing for nested JSON structure
+- New notification methods in `internal/notifications/service.go`:
+  - `NotifyYasnoScheduleTomorrow()` - tomorrow schedule announcement
+  - `NotifyYasnoEmergencyShutdown()` - emergency shutdown alert
+  - `NotifyYasnoScheduleRestored()` - schedule restoration (currently logged only)
+  - `GetYasnoScheduleState()` - extract state from entity attributes
+  - `GetYasnoGroupName()` - parse group name from attributes
+  - `GetYasnoCalendarEvents()` - wrapper for calendar API
+  - `sendToAllChatsWithQuietHours()` - send with conditional notification sound
+  - `formatYasnoDate()` - Ukrainian date formatting with day names
+- Enhanced `internal/watcher/watcher.go`:
+  - `registerYasnoHandlers()` - WebSocket handler registration
+  - `handleYasnoTodayChange()` - today status change processing
+  - `handleYasnoTomorrowChange()` - tomorrow status change processing
+  - Separate state tracking for Yasno sensors
+- Extended configuration in `internal/config/config.go`:
+  - `YasnoTodaySensorID`, `YasnoTomorrowSensorID`, `YasnoCalendarID` fields
+  - `IsYasnoMonitoringEnabled()` method
+  - Environment variable parsing: `YASNO_TODAY_SENSOR_ID`, etc.
+- Updated add-on configuration schema in `config.yaml`
+- Updated startup script to pass Yasno environment variables
+- Comprehensive test coverage:
+  - `calendar_test.go` - Calendar API client tests with httptest
+  - `config_test.go` - Added `TestIsYasnoMonitoringEnabled()`
+  - All tests passing with new functionality
+
+### Messages
+- `MsgYasnoScheduleTomorrow` - "📅 *Графік відключень на %s%s*"
+- `MsgYasnoNoOutagesTomorrow` - "📅 *Графік на %s%s*\n\n✅ Відключень не повинно бути 🌞"
+- `MsgYasnoEmergencyShutdown` - "🚨 *Аварійні відключення!*"
+- `MsgYasnoScheduleRestored` - "✅ *Графік відновлено*"
+- `MsgYasnoOutageInterval` - "🪫%s - %s"
 
 ## [0.4.5] - 2026-02-04
 

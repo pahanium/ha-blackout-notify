@@ -3,36 +3,43 @@ package notifications
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	"github.com/yourusername/haaddon/telegram-bot/internal/config"
-	"github.com/yourusername/haaddon/telegram-bot/internal/homeassistant"
-	"github.com/yourusername/haaddon/telegram-bot/internal/logger"
+	"github.com/pahanium/ha-blackout-notify/internal/config"
+	"github.com/pahanium/ha-blackout-notify/internal/homeassistant"
 )
+
+// Sender sends Telegram messages (implemented by *tgbotapi.BotAPI)
+type Sender interface {
+	Send(c tgbotapi.Chattable) (tgbotapi.Message, error)
+}
+
+// HAReader reads Home Assistant data (implemented by *homeassistant.Client)
+type HAReader interface {
+	GetState(ctx context.Context, entityID string) (*homeassistant.Entity, error)
+	GetCalendarEvents(ctx context.Context, calendarID, startDateTime, endDateTime string) ([]homeassistant.CalendarEvent, error)
+}
 
 // Service handles power notifications
 type Service struct {
-	bot      *tgbotapi.BotAPI
+	bot      Sender
 	config   *config.Config
-	haClient *homeassistant.Client
+	haClient HAReader
 	location *time.Location
+	now      func() time.Time
 }
 
 // NewService creates a new notification service
-func NewService(bot *tgbotapi.BotAPI, cfg *config.Config, haClient *homeassistant.Client) (*Service, error) {
-	loc, err := time.LoadLocation(cfg.Timezone)
-	if err != nil {
-		logger.Warn("Failed to load timezone %s, using UTC: %v", cfg.Timezone, err)
-		loc = time.UTC
-	}
-
+func NewService(bot Sender, cfg *config.Config, haClient HAReader) (*Service, error) {
 	return &Service{
 		bot:      bot,
 		config:   cfg,
 		haClient: haClient,
-		location: loc,
+		location: cfg.Location,
+		now:      time.Now,
 	}, nil
 }
 
@@ -40,7 +47,7 @@ func NewService(bot *tgbotapi.BotAPI, cfg *config.Config, haClient *homeassistan
 // previousOffDurationSec - how long power was off in seconds (0 if unknown)
 func (s *Service) NotifyPowerOn(ctx context.Context, previousOffDurationSec int64) error {
 	if s.isPaused(ctx) {
-		logger.Debug("Notifications paused, skipping power on notification")
+		slog.Debug("Notifications paused, skipping power on notification")
 		return nil
 	}
 
@@ -53,19 +60,17 @@ func (s *Service) NotifyPowerOn(ctx context.Context, previousOffDurationSec int6
 	// (longer durations likely mean the bot was not running and may have missed events)
 	if previousOffDurationSec > 60 && previousOffDurationSec < 86400 {
 		durationStr := formatDuration(time.Duration(previousOffDurationSec) * time.Second)
-		sb.WriteString(fmt.Sprintf("\n%s", fmt.Sprintf(MsgWasOff, durationStr)))
+		fmt.Fprintf(&sb, "\n%s", fmt.Sprintf(MsgWasOff, durationStr))
 	}
 
-	// Get next scheduled off time
-	if s.config.NextOffSensorID != "" {
+	// Next scheduled off time, unless power came back outside the schedule
+	offDuration := time.Duration(previousOffDurationSec) * time.Second
+	if s.config.NextOffSensorID != "" && s.isScheduledPowerChange(ctx, true, now, offDuration) {
 		nextOff, err := s.getScheduledTime(ctx, s.config.NextOffSensorID)
 		if err != nil {
-			logger.Warn("Failed to get next off time: %v", err)
-		} else if nextOff != nil {
-			duration := nextOff.Sub(now)
-			sb.WriteString(fmt.Sprintf("\n\n%s\n%s",
-				fmt.Sprintf(MsgScheduleOffIn, formatDuration(duration), nextOff.In(s.location).Format("15:04")),
-				MsgScheduleSource))
+			slog.Warn("Failed to get next off time", "error", err)
+		} else if next := s.formatNextTime("off", nextOff, now); next != "" {
+			sb.WriteString("\n\n" + next)
 		}
 	}
 
@@ -76,7 +81,7 @@ func (s *Service) NotifyPowerOn(ctx context.Context, previousOffDurationSec int6
 // previousOnDurationSec - how long power was on in seconds (0 if unknown)
 func (s *Service) NotifyPowerOff(ctx context.Context, previousOnDurationSec int64) error {
 	if s.isPaused(ctx) {
-		logger.Debug("Notifications paused, skipping power off notification")
+		slog.Debug("Notifications paused, skipping power off notification")
 		return nil
 	}
 
@@ -89,19 +94,16 @@ func (s *Service) NotifyPowerOff(ctx context.Context, previousOnDurationSec int6
 	// (longer durations likely mean the bot was not running and may have missed events)
 	if previousOnDurationSec > 60 && previousOnDurationSec < 86400 {
 		durationStr := formatDuration(time.Duration(previousOnDurationSec) * time.Second)
-		sb.WriteString(fmt.Sprintf("\n%s", fmt.Sprintf(MsgWasOn, durationStr)))
+		fmt.Fprintf(&sb, "\n%s", fmt.Sprintf(MsgWasOn, durationStr))
 	}
 
-	// Get next scheduled on time
-	if s.config.NextOnSensorID != "" {
+	// Next scheduled on time, unless power went out outside the schedule
+	if s.config.NextOnSensorID != "" && s.isScheduledPowerChange(ctx, false, now, 0) {
 		nextOn, err := s.getScheduledTime(ctx, s.config.NextOnSensorID)
 		if err != nil {
-			logger.Warn("Failed to get next on time: %v", err)
-		} else if nextOn != nil {
-			duration := nextOn.Sub(now)
-			sb.WriteString(fmt.Sprintf("\n\n%s\n%s",
-				fmt.Sprintf(MsgScheduleOnIn, formatDuration(duration), nextOn.In(s.location).Format("15:04")),
-				MsgScheduleSource))
+			slog.Warn("Failed to get next on time", "error", err)
+		} else if next := s.formatNextTime("on", nextOn, now); next != "" {
+			sb.WriteString("\n\n" + next)
 		}
 	}
 
@@ -176,7 +178,7 @@ func (s *Service) isPaused(ctx context.Context) bool {
 
 	entity, err := s.haClient.GetState(ctx, s.config.PauseEntityID)
 	if err != nil {
-		logger.Debug("Failed to check pause state: %v", err)
+		slog.Debug("Failed to check pause state", "error", err)
 		return false
 	}
 
@@ -192,10 +194,10 @@ func (s *Service) sendToAllChats(text string) error {
 		msg.ParseMode = tgbotapi.ModeMarkdown
 
 		if _, err := s.bot.Send(msg); err != nil {
-			logger.Error("Failed to send notification to chat %d: %v", chatID, err)
+			slog.Error("Failed to send notification", "chat_id", chatID, "error", err)
 			lastErr = err
 		} else {
-			logger.Debug("Sent notification to chat %d", chatID)
+			slog.Debug("Sent notification", "chat_id", chatID)
 		}
 	}
 
@@ -207,46 +209,9 @@ func (s *Service) SendCustomMessage(text string) error {
 	return s.sendToAllChats(text)
 }
 
-// NotifyScheduleChanged sends notification when schedule changes
-// scheduleType: "on" for next power on, "off" for next power off
-func (s *Service) NotifyScheduleChanged(ctx context.Context, scheduleType string, oldTime, newTime *time.Time) error {
-	if s.isPaused(ctx) {
-		logger.Debug("Notifications paused, skipping schedule change notification")
-		return nil
-	}
-
-	now := time.Now().In(s.location)
-
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("%s\n\n", MsgScheduleUpdate))
-
-	if scheduleType == "on" {
-		if newTime != nil {
-			duration := newTime.Sub(now)
-			sb.WriteString(fmt.Sprintf("%s\n",
-				fmt.Sprintf(MsgScheduleOnIn, formatDuration(duration), newTime.In(s.location).Format("15:04"))))
-		}
-	} else {
-		if newTime != nil {
-			duration := newTime.Sub(now)
-			sb.WriteString(fmt.Sprintf("%s\n",
-				fmt.Sprintf(MsgScheduleOffIn, formatDuration(duration), newTime.In(s.location).Format("15:04"))))
-		}
-	}
-
-	sb.WriteString(MsgScheduleSource)
-
-	return s.sendToAllChats(sb.String())
-}
-
 // GetScheduledTime is a public wrapper for getScheduledTime
 func (s *Service) GetScheduledTime(ctx context.Context, sensorID string) (*time.Time, error) {
 	return s.getScheduledTime(ctx, sensorID)
-}
-
-// GetLocation returns the configured timezone location
-func (s *Service) GetLocation() *time.Location {
-	return s.location
 }
 
 // formatDuration formats duration in human-readable Ukrainian, rounded to minutes
@@ -277,4 +242,185 @@ func formatDuration(d time.Duration) string {
 	}
 
 	return fmt.Sprintf("%dгод %dхв", hours, minutes)
+}
+
+// NotifyYasnoEmergencyShutdown sends notification about emergency shutdowns.
+// The warning that power may go off any moment is omitted when it is already off.
+func (s *Service) NotifyYasnoEmergencyShutdown(ctx context.Context, powerOff bool) error {
+	if s.isPaused(ctx) {
+		slog.Debug("Notifications paused, skipping Yasno emergency notification")
+		return nil
+	}
+
+	text := MsgYasnoEmergencyShutdown
+	if !powerOff {
+		text += " " + MsgYasnoEmergencyMayCut
+	}
+	return s.sendToAllChats(text)
+}
+
+// GetYasnoCalendarEvents retrieves calendar events that overlap the calendar day of date
+func (s *Service) GetYasnoCalendarEvents(ctx context.Context, calendarID string, date time.Time) ([]homeassistant.CalendarEvent, error) {
+	date = date.In(s.location)
+	dayStart := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, s.location)
+	dayEnd := dayStart.AddDate(0, 0, 1)
+
+	events, err := s.haClient.GetCalendarEvents(ctx, calendarID,
+		dayStart.Format("2006-01-02 15:04:05"), dayStart.Format("2006-01-02")+" 23:59:59")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get calendar events: %w", err)
+	}
+
+	return eventsOverlapping(events, dayStart, dayEnd), nil
+}
+
+// eventsOverlapping keeps events that overlap [from, to). HA also returns events that only touch
+// the range boundary, e.g. yesterday's 18:30-00:00 outage for today.
+func eventsOverlapping(events []homeassistant.CalendarEvent, from, to time.Time) []homeassistant.CalendarEvent {
+	var result []homeassistant.CalendarEvent
+	for _, event := range events {
+		start, err := parseEventTime(event.Start, from.Location())
+		if err != nil {
+			slog.Warn("Failed to parse event start time", "value", event.Start, "error", err)
+			continue
+		}
+		end, err := parseEventTime(event.End, from.Location())
+		if err != nil {
+			slog.Warn("Failed to parse event end time", "value", event.End, "error", err)
+			continue
+		}
+		if start.Before(to) && end.After(from) {
+			result = append(result, event)
+		}
+	}
+	return result
+}
+
+// parseEventTime parses a calendar event time: RFC3339 for timed events or a date (local midnight
+// in loc) for all-day events, whose end date is exclusive
+func parseEventTime(value string, loc *time.Location) (time.Time, error) {
+	if t, err := time.Parse(time.RFC3339, value); err == nil {
+		return t, nil
+	}
+	t, err := time.ParseInLocation(time.DateOnly, value, loc)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("unsupported event time %q: %w", value, err)
+	}
+	return t, nil
+}
+
+// sendToAllChatsWithQuietHours sends message to all chats, disabling notification during quiet hours (23:00-06:00)
+func (s *Service) sendToAllChatsWithQuietHours(ctx context.Context, text string) error {
+	now := s.now().In(s.location)
+	hour := now.Hour()
+
+	// Quiet hours: 23:00 (23) to 06:00 (6)
+	disableNotification := hour >= 23 || hour < 6
+
+	var lastErr error
+
+	for _, chatID := range s.config.NotificationChatIDs {
+		msg := tgbotapi.NewMessage(chatID, text)
+		msg.ParseMode = tgbotapi.ModeMarkdown
+		msg.DisableNotification = disableNotification
+
+		if _, err := s.bot.Send(msg); err != nil {
+			slog.Error("Failed to send notification", "chat_id", chatID, "error", err)
+			lastErr = err
+		} else {
+			if disableNotification {
+				slog.Debug("Sent silent notification (quiet hours)", "chat_id", chatID, "hour", hour)
+			} else {
+				slog.Debug("Sent notification", "chat_id", chatID)
+			}
+		}
+	}
+
+	return lastErr
+}
+
+// formatYasnoDate formats date in Ukrainian for Yasno notifications
+// Examples: "завтра сб, 07.02", "сьогодні пт, 06.02"
+func formatYasnoDate(date time.Time, loc *time.Location) string {
+	date = date.In(loc)
+	now := time.Now().In(loc)
+
+	// Ukrainian day names (short)
+	dayNames := []string{"нд", "пн", "вт", "ср", "чт", "пт", "сб"}
+	dayName := dayNames[date.Weekday()]
+
+	// Check if today or tomorrow
+	var prefix string
+	if isSameDay(date, now) {
+		prefix = "сьогодні"
+	} else if isSameDay(date, now.AddDate(0, 0, 1)) {
+		prefix = "завтра"
+	} else {
+		// Use date as prefix for other days
+		prefix = date.Format("02.01")
+	}
+
+	return fmt.Sprintf("%s %s, %s", prefix, dayName, date.Format("02.01"))
+}
+
+// isSameDay checks if two times are on the same day
+func isSameDay(t1, t2 time.Time) bool {
+	y1, m1, d1 := t1.Date()
+	y2, m2, d2 := t2.Date()
+	return y1 == y2 && m1 == m2 && d1 == d2
+}
+
+// FormatYasnoSchedule formats Yasno calendar events in the same style as automatic notifications
+// date - target date to format schedule for (today or tomorrow)
+func (s *Service) FormatYasnoSchedule(events []homeassistant.CalendarEvent, date time.Time, groupName string) string {
+	date = date.In(s.location)
+	dateStr := formatYasnoDate(date, s.location)
+
+	// Add group name if available
+	groupStr := ""
+	if groupName != "" {
+		groupStr = fmt.Sprintf(", %s", groupName)
+	}
+
+	lines := s.formatOutageLines(events)
+	if lines == "" {
+		return fmt.Sprintf(MsgYasnoNoOutages, dateStr, groupStr)
+	}
+	return fmt.Sprintf(MsgYasnoSchedule, dateStr, groupStr) + "\n\n" + lines
+}
+
+// ExtractYasnoGroupFromCalendarID extracts group number from calendar entity ID
+// Examples:
+//
+//	calendar.yasno_kiiv_2_1_planned_outages -> "група 2.1"
+//	calendar.yasno_kyiv_3_2_planned_outages -> "група 3.2"
+//	calendar.other_calendar -> ""
+func ExtractYasnoGroupFromCalendarID(calendarID string) string {
+	if calendarID == "" {
+		return ""
+	}
+
+	// Remove "calendar." prefix if present
+	name := calendarID
+	if idx := strings.Index(name, "."); idx >= 0 {
+		name = name[idx+1:]
+	}
+
+	// Look for pattern like "2_1" or "3_2" in the name
+	// Expected format: yasno_kiiv_X_Y_planned_outages where X and Y are digits
+	parts := strings.Split(name, "_")
+
+	// Find consecutive digit parts
+	for i := 0; i < len(parts)-1; i++ {
+		// Check if current and next parts are single digits
+		if len(parts[i]) == 1 && len(parts[i+1]) == 1 {
+			// Check if both are digits
+			if parts[i][0] >= '0' && parts[i][0] <= '9' &&
+				parts[i+1][0] >= '0' && parts[i+1][0] <= '9' {
+				return fmt.Sprintf("група %s.%s", parts[i], parts[i+1])
+			}
+		}
+	}
+
+	return ""
 }
