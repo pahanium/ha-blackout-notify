@@ -20,6 +20,10 @@ func scheduleDays(env *testEnv) (today, tomorrow time.Time, todayKey, tomorrowKe
 	return today, tomorrow, today.Format("2006-01-02"), tomorrow.Format("2006-01-02")
 }
 
+func fingerprint(env *testEnv, day time.Time, events []homeassistant.CalendarEvent) string {
+	return notifications.ScheduleFingerprint(events, day, env.notifier.loc)
+}
+
 func reconcile(w *Watcher) {
 	w.reconcileSchedule(context.Background())
 }
@@ -33,10 +37,10 @@ func (f *fakeNotifier) snapshot() (schedules, changed, ended []string, emergency
 
 func TestReconcile_TomorrowSentOnceAndNotRepeatedAtMidnight(t *testing.T) {
 	w, env := newScheduleWatcher(t, PowerStateOn)
-	_, _, todayKey, tomorrowKey := scheduleDays(env)
+	_, tomorrow, todayKey, tomorrowKey := scheduleDays(env)
 	tomorrowEvents := []homeassistant.CalendarEvent{definite(tomorrowKey+"T01:00:00+02:00", tomorrowKey+"T08:00:00+02:00")}
 	env.notifier.events[tomorrowKey] = tomorrowEvents
-	env.log.sent[todayKey] = notifications.ScheduleFingerprint(nil)
+	env.log.sent[todayKey] = fingerprint(env, time.Now(), nil)
 	env.states.set("sensor.yasno_today", notifications.YasnoStatusScheduleApplies)
 	env.states.set("sensor.yasno_tomorrow", notifications.YasnoStatusScheduleApplies)
 
@@ -49,7 +53,7 @@ func TestReconcile_TomorrowSentOnceAndNotRepeatedAtMidnight(t *testing.T) {
 	}
 
 	// Next day the same schedule becomes "today": its fingerprint is already logged under that date
-	if env.log.sent[tomorrowKey] != notifications.ScheduleFingerprint(tomorrowEvents) {
+	if env.log.sent[tomorrowKey] != fingerprint(env, tomorrow, tomorrowEvents) {
 		t.Errorf("tomorrow's schedule must be logged under its own date")
 	}
 }
@@ -74,7 +78,7 @@ func TestReconcile_TodayResentWhenChanged(t *testing.T) {
 	w, env := newScheduleWatcher(t, PowerStateOn)
 	_, _, todayKey, _ := scheduleDays(env)
 	old := []homeassistant.CalendarEvent{definite(todayKey+"T19:00:00+02:00", todayKey+"T23:00:00+02:00")}
-	env.log.sent[todayKey] = notifications.ScheduleFingerprint(old)
+	env.log.sent[todayKey] = fingerprint(env, time.Now(), old)
 	env.notifier.events[todayKey] = []homeassistant.CalendarEvent{definite(todayKey+"T18:00:00+02:00", todayKey+"T23:00:00+02:00")}
 	env.states.set("sensor.yasno_today", notifications.YasnoStatusScheduleApplies)
 
@@ -84,7 +88,7 @@ func TestReconcile_TodayResentWhenChanged(t *testing.T) {
 	if len(schedules) != 0 || len(changed) != 1 || changed[0] != "off" {
 		t.Errorf("changed today's schedule: want one \"schedule updated\" with next off, got schedules=%v changed=%v", schedules, changed)
 	}
-	if got := env.log.sent[todayKey]; got != notifications.ScheduleFingerprint(env.notifier.events[todayKey]) {
+	if got := env.log.sent[todayKey]; got != fingerprint(env, time.Now(), env.notifier.events[todayKey]) {
 		t.Errorf("new today's schedule must be marked as sent")
 	}
 }
@@ -106,7 +110,7 @@ func TestReconcile_EmergencyWhilePowerOff(t *testing.T) {
 func TestReconcile_TomorrowWaitingNotSent(t *testing.T) {
 	w, env := newScheduleWatcher(t, PowerStateOn)
 	_, _, todayKey, _ := scheduleDays(env)
-	env.log.sent[todayKey] = notifications.ScheduleFingerprint(nil)
+	env.log.sent[todayKey] = fingerprint(env, time.Now(), nil)
 	env.states.set("sensor.yasno_today", notifications.YasnoStatusScheduleApplies)
 	env.states.set("sensor.yasno_tomorrow", notifications.YasnoStatusWaitingForSchedule)
 
@@ -120,7 +124,7 @@ func TestReconcile_TomorrowWaitingNotSent(t *testing.T) {
 func TestReconcile_TomorrowStatusFromYesterdayNotSent(t *testing.T) {
 	w, env := newScheduleWatcher(t, PowerStateOn)
 	today, _, todayKey, tomorrowKey := scheduleDays(env)
-	env.log.sent[todayKey] = notifications.ScheduleFingerprint(nil)
+	env.log.sent[todayKey] = fingerprint(env, time.Now(), nil)
 	env.states.set("sensor.yasno_today", notifications.YasnoStatusScheduleApplies)
 	// Just after midnight: still yesterday's "tomorrow applies", tomorrow's calendar is empty
 	midnight := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, env.notifier.loc)
@@ -216,7 +220,7 @@ func TestReconcile_ScheduleChangedSingleMessage(t *testing.T) {
 func TestReconcile_IrrelevantNextTimeNotAnnounced(t *testing.T) {
 	w, env := newScheduleWatcher(t, PowerStateOn)
 	_, _, todayKey, _ := scheduleDays(env)
-	env.log.sent[todayKey] = notifications.ScheduleFingerprint(nil)
+	env.log.sent[todayKey] = fingerprint(env, time.Now(), nil)
 	nextOn := time.Now().Add(time.Hour)
 	env.notifier.scheduled["sensor.next_on"] = &nextOn
 
@@ -233,7 +237,7 @@ func TestReconcile_IrrelevantNextTimeNotAnnounced(t *testing.T) {
 func TestReconcile_RecentlyPassedOldTimeSuppressed(t *testing.T) {
 	w, env := newScheduleWatcher(t, PowerStateOn)
 	_, _, todayKey, _ := scheduleDays(env)
-	env.log.sent[todayKey] = notifications.ScheduleFingerprint(nil)
+	env.log.sent[todayKey] = fingerprint(env, time.Now(), nil)
 	old := time.Now().Add(-30 * time.Minute)
 	next := time.Now().Add(time.Hour)
 	w.lastNextOffTime = &old
@@ -316,7 +320,7 @@ func TestInitSchedule_FirstRunMarksCurrentAsSent(t *testing.T) {
 func TestReconcile_TomorrowUsesConfiguredTimezone(t *testing.T) {
 	w, env := newScheduleWatcher(t, PowerStateOn)
 	_, _, todayKey, tomorrowKey := scheduleDays(env)
-	env.log.sent[todayKey] = notifications.ScheduleFingerprint(nil)
+	env.log.sent[todayKey] = fingerprint(env, time.Now(), nil)
 	env.states.set("sensor.yasno_today", notifications.YasnoStatusScheduleApplies)
 	env.states.set("sensor.yasno_tomorrow", notifications.YasnoStatusScheduleApplies)
 
@@ -336,7 +340,7 @@ func TestReconcile_YesterdaysTomorrowNotResentAsToday(t *testing.T) {
 	events := []homeassistant.CalendarEvent{definite(todayKey+"T01:00:00+02:00", todayKey+"T08:00:00+02:00")}
 	env.notifier.events[todayKey] = events
 	// Sent yesterday as "tomorrow" under today's date
-	env.log.sent[todayKey] = notifications.ScheduleFingerprint(events)
+	env.log.sent[todayKey] = fingerprint(env, time.Now(), events)
 	env.states.set("sensor.yasno_today", notifications.YasnoStatusScheduleApplies)
 	env.states.set("sensor.yasno_tomorrow", notifications.YasnoStatusWaitingForSchedule)
 
@@ -344,5 +348,56 @@ func TestReconcile_YesterdaysTomorrowNotResentAsToday(t *testing.T) {
 
 	if schedules, _, _, _ := env.notifier.snapshot(); len(schedules) != 0 {
 		t.Errorf("schedule already sent as tomorrow must not be repeated, got %v", schedules)
+	}
+}
+
+func TestReconcile_MidnightCrossingOutageReshapedNotAnnounced(t *testing.T) {
+	w, env := newScheduleWatcher(t, PowerStateOff)
+	today, _, todayKey, _ := scheduleDays(env)
+	loc := env.notifier.loc
+	at := func(dayOffset, hour, minute int) string {
+		return time.Date(today.Year(), today.Month(), today.Day()+dayOffset, hour, minute, 0, 0, loc).Format(time.RFC3339)
+	}
+	// Sent yesterday as "tomorrow": the evening outage ended at midnight
+	sent := []homeassistant.CalendarEvent{
+		definite(at(0, 0, 0), at(0, 4, 0)),
+		definite(at(0, 7, 30), at(0, 15, 0)),
+		definite(at(0, 17, 30), at(1, 0, 0)),
+	}
+	env.log.sent[todayKey] = fingerprint(env, today, sent)
+	// After Yasno's refresh the same day comes as yesterday's outage extended past midnight and
+	// tonight's one extended into tomorrow: the outages shown for today are unchanged
+	env.notifier.events[todayKey] = []homeassistant.CalendarEvent{
+		definite(at(-1, 17, 30), at(0, 4, 0)),
+		definite(at(0, 7, 30), at(0, 11, 0)),
+		definite(at(0, 11, 0), at(0, 15, 0)),
+		definite(at(0, 17, 30), at(1, 4, 0)),
+	}
+	env.states.set("sensor.yasno_today", notifications.YasnoStatusScheduleApplies)
+	env.states.set("sensor.yasno_tomorrow", notifications.YasnoStatusWaitingForSchedule)
+
+	reconcile(w)
+
+	if schedules, changed, _, _ := env.notifier.snapshot(); len(schedules)+len(changed) != 0 {
+		t.Errorf("same outages for today: want no message, got schedules=%v changed=%v", schedules, changed)
+	}
+}
+
+func TestReconcile_OldFingerprintUpgradedSilently(t *testing.T) {
+	w, env := newScheduleWatcher(t, PowerStateOn)
+	today, _, todayKey, _ := scheduleDays(env)
+	events := []homeassistant.CalendarEvent{definite(todayKey+"T19:00:00+02:00", todayKey+"T23:00:00+02:00")}
+	env.notifier.events[todayKey] = events
+	env.log.sent[todayKey] = "0123456789abcdef" // made by an older version
+	env.states.set("sensor.yasno_today", notifications.YasnoStatusScheduleApplies)
+	env.states.set("sensor.yasno_tomorrow", notifications.YasnoStatusWaitingForSchedule)
+
+	reconcile(w)
+
+	if schedules, changed, _, _ := env.notifier.snapshot(); len(schedules)+len(changed) != 0 {
+		t.Errorf("old fingerprint: want no message, got schedules=%v changed=%v", schedules, changed)
+	}
+	if got := env.log.sent[todayKey]; got != fingerprint(env, today, events) {
+		t.Errorf("old fingerprint must be replaced, got %q", got)
 	}
 }

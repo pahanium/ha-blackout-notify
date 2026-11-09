@@ -68,39 +68,54 @@ func mergeOutages(outages []outageInterval) []outageInterval {
 	return merged
 }
 
-// ScheduleFingerprint identifies the set of confirmed outages in events, to detect schedule changes
-func ScheduleFingerprint(events []homeassistant.CalendarEvent) string {
-	var parts []string
-	for _, event := range events {
-		if event.Description == definiteOutageEventDescription {
-			parts = append(parts, event.Start+"/"+event.End)
-		}
-	}
-	sort.Strings(parts)
-	sum := sha256.Sum256([]byte(strings.Join(parts, ";")))
-	return hex.EncodeToString(sum[:8])
-}
+// fingerprintVersion prefixes schedule fingerprints. Fingerprints stored by older versions
+// (built from raw calendar events) lack it and are replaced silently instead of announced.
+const fingerprintVersion = "v2:"
 
-// formatOutageLines renders confirmed outages of day as "🪫HH:MM - HH:MM" lines. Outages crossing
-// midnight are cut to the day, e.g. 20:30-02:00 from the previous evening is shown as 00:00 - 02:00.
-func (s *Service) formatOutageLines(events []homeassistant.CalendarEvent, day time.Time) string {
-	day = day.In(s.location)
-	dayStart := time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, s.location)
+// dayOutages returns confirmed outages of day sorted by start, cut to the day: an outage crossing
+// midnight, e.g. 20:30-02:00 from the previous evening, becomes 00:00-02:00
+func dayOutages(events []homeassistant.CalendarEvent, day time.Time, loc *time.Location) []outageInterval {
+	day = day.In(loc)
+	dayStart := time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, loc)
 	dayEnd := dayStart.AddDate(0, 0, 1)
 
+	var outages []outageInterval
+	for _, o := range definiteOutages(events, loc) {
+		if o.Start.Before(dayStart) {
+			o.Start = dayStart
+		}
+		if o.End.After(dayEnd) {
+			o.End = dayEnd
+		}
+		if o.Start.Before(o.End) {
+			outages = append(outages, o)
+		}
+	}
+	return outages
+}
+
+// ScheduleFingerprint identifies the outages of day as they are shown to users, to detect schedule
+// changes. Changes outside the day (e.g. an evening outage extended past midnight once the next
+// day's schedule is published) or in how Yasno splits the same outages don't change it.
+func ScheduleFingerprint(events []homeassistant.CalendarEvent, day time.Time, loc *time.Location) string {
+	var parts []string
+	for _, o := range mergeOutages(dayOutages(events, day, loc)) {
+		parts = append(parts, o.Start.Format(time.RFC3339)+"/"+o.End.Format(time.RFC3339))
+	}
+	sum := sha256.Sum256([]byte(strings.Join(parts, ";")))
+	return fingerprintVersion + hex.EncodeToString(sum[:8])
+}
+
+// IsCurrentFingerprint reports whether fingerprint was made by this version of ScheduleFingerprint
+func IsCurrentFingerprint(fingerprint string) bool {
+	return strings.HasPrefix(fingerprint, fingerprintVersion)
+}
+
+// formatOutageLines renders confirmed outages of day as "🪫HH:MM - HH:MM" lines, cut to the day
+func (s *Service) formatOutageLines(events []homeassistant.CalendarEvent, day time.Time) string {
 	var lines []string
-	for _, o := range definiteOutages(events, s.location) {
-		start, end := o.Start, o.End
-		if start.Before(dayStart) {
-			start = dayStart
-		}
-		if end.After(dayEnd) {
-			end = dayEnd
-		}
-		if !start.Before(end) {
-			continue
-		}
-		lines = append(lines, fmt.Sprintf(MsgYasnoOutageInterval, start.Format("15:04"), end.In(s.location).Format("15:04")))
+	for _, o := range dayOutages(events, day, s.location) {
+		lines = append(lines, fmt.Sprintf(MsgYasnoOutageInterval, o.Start.Format("15:04"), o.End.Format("15:04")))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -160,9 +175,10 @@ func (s *Service) isScheduledPowerChange(ctx context.Context, powerOn bool, now 
 	return true
 }
 
-// formatNextTime renders the "next on/off in ..." line with source, or "" if t is nil
+// formatNextTime renders the "next on/off in ..." line with source, or "" if t is nil or already
+// passed (power didn't follow the schedule, so the time is meaningless)
 func (s *Service) formatNextTime(scheduleType string, t *time.Time, now time.Time) string {
-	if t == nil {
+	if t == nil || !t.After(now) {
 		return ""
 	}
 	format := MsgScheduleOffIn
