@@ -69,7 +69,7 @@ func (w *Watcher) initSchedule(ctx context.Context) {
 		now := time.Now().In(w.config.Location)
 		for _, day := range []time.Time{now, now.AddDate(0, 0, 1)} {
 			if events, err := w.notifSvc.GetYasnoCalendarEvents(ctx, w.config.YasnoCalendarID, day); err == nil {
-				w.markSent(ctx, day, notifications.ScheduleFingerprint(events))
+				w.markSent(ctx, day, notifications.ScheduleFingerprint(events, day, w.config.Location))
 			}
 		}
 		slog.Info("First run: current schedules marked as already sent")
@@ -177,7 +177,7 @@ func (w *Watcher) reconcileSchedule(ctx context.Context) {
 			todayEvents = append([]homeassistant.CalendarEvent{}, events...)
 		}
 	}
-	todayFingerprint := notifications.ScheduleFingerprint(todayEvents)
+	todayFingerprint := notifications.ScheduleFingerprint(todayEvents, now, w.config.Location)
 
 	switch {
 	case emergencyEnded:
@@ -230,7 +230,7 @@ func (w *Watcher) reconcileTomorrow(ctx context.Context, now time.Time) {
 		slog.Error("Failed to get tomorrow's Yasno calendar events", "error", err)
 		return
 	}
-	fingerprint := notifications.ScheduleFingerprint(events)
+	fingerprint := notifications.ScheduleFingerprint(events, tomorrow, w.config.Location)
 	if !w.isNewSchedule(ctx, tomorrow, fingerprint) {
 		return
 	}
@@ -385,7 +385,8 @@ func dateKey(t time.Time, loc *time.Location) string {
 	return t.In(loc).Format("2006-01-02")
 }
 
-// isNewSchedule reports whether fingerprint differs from the schedule already sent for day
+// isNewSchedule reports whether fingerprint differs from the schedule already sent for day.
+// A fingerprint stored by an older version can't be compared: it is replaced silently.
 func (w *Watcher) isNewSchedule(ctx context.Context, day time.Time, fingerprint string) bool {
 	if w.scheduleLog == nil {
 		return false
@@ -393,6 +394,11 @@ func (w *Watcher) isNewSchedule(ctx context.Context, day time.Time, fingerprint 
 	last, err := w.scheduleLog.LastSent(ctx, dateKey(day, w.config.Location))
 	if err != nil {
 		slog.Warn("Failed to read schedule log", "error", err)
+		return false
+	}
+	if last != "" && !notifications.IsCurrentFingerprint(last) {
+		slog.Info("Upgrading stored schedule fingerprint", "date", dateKey(day, w.config.Location))
+		w.markSent(ctx, day, fingerprint)
 		return false
 	}
 	return last != fingerprint
