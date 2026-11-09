@@ -401,3 +401,44 @@ func TestReconcile_OldFingerprintUpgradedSilently(t *testing.T) {
 		t.Errorf("old fingerprint must be replaced, got %q", got)
 	}
 }
+
+func TestReconcile_TomorrowPublishedExtendsTonightsOutage(t *testing.T) {
+	w, env := newScheduleWatcher(t, PowerStateOff)
+	today, _, todayKey, tomorrowKey := scheduleDays(env)
+	loc := env.notifier.loc
+	at := func(dayOffset, hour, minute int) time.Time {
+		return time.Date(today.Year(), today.Month(), today.Day()+dayOffset, hour, minute, 0, 0, loc)
+	}
+	rfc := func(dayOffset, hour, minute int) string { return at(dayOffset, hour, minute).Format(time.RFC3339) }
+	if time.Until(at(1, 0, 0)) < 2*time.Minute {
+		t.Skip("too close to midnight")
+	}
+	// Tonight's outage until midnight was announced, power is off, next on at 00:00
+	oldOn := at(1, 0, 0)
+	w.lastNextOnTime = &oldOn
+	env.log.sent[todayKey] = fingerprint(env, today, []homeassistant.CalendarEvent{
+		definite(rfc(0, 7, 30), rfc(0, 15, 0)),
+		definite(rfc(0, 17, 30), rfc(1, 0, 0)),
+	})
+	// Tomorrow's schedule starts with 00:00-01:00: tonight's outage now lasts until 01:00
+	newOn := at(1, 1, 0)
+	env.notifier.scheduled["sensor.next_on"] = &newOn
+	env.notifier.events[todayKey] = []homeassistant.CalendarEvent{
+		definite(rfc(0, 7, 30), rfc(0, 15, 0)),
+		definite(rfc(0, 17, 30), rfc(1, 1, 0)),
+	}
+	env.notifier.events[tomorrowKey] = []homeassistant.CalendarEvent{
+		definite(rfc(0, 17, 30), rfc(1, 1, 0)),
+		definite(rfc(1, 6, 0), rfc(1, 12, 30)),
+		definite(rfc(1, 15, 0), rfc(1, 22, 0)),
+	}
+	env.states.set("sensor.yasno_today", notifications.YasnoStatusScheduleApplies)
+	env.states.set("sensor.yasno_tomorrow", notifications.YasnoStatusScheduleApplies)
+
+	reconcile(w)
+
+	schedules, changed, _, _ := env.notifier.snapshot()
+	if len(changed) != 0 || len(schedules) != 1 || schedules[0] != tomorrowKey {
+		t.Errorf("want only tomorrow's schedule, got schedules=%v changed=%v", schedules, changed)
+	}
+}
