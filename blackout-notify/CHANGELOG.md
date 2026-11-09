@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.2] - 2026-11-09
+
+### Fixed
+- 📅 **"Відключення через невідомо"**: When the power is on although the schedule says it should be off (or vice versa), the next on/off time has already passed. Such a time is no longer shown; the message keeps only its header and today's schedule
+- 🔄 **Extra "Графік оновлено" around midnight**: Publishing tomorrow's schedule or Yasno's refresh after midnight reshapes outages crossing midnight (e.g. 17:30 - 00:00 becomes 17:30 - 04:00) without changing what is shown for the day. Schedule changes are now detected by the day's displayed intervals, so only "schedule for tomorrow" is sent. Schedules stored by older versions are updated silently on the first check
+
 ## [0.9.1] - 2026-11-04
 
 ### Fixed
