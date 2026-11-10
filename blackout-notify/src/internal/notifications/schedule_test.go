@@ -139,6 +139,27 @@ func TestNotifyEmergencyEnded_Format(t *testing.T) {
 	}
 }
 
+func TestNotifyEmergencyEnded_PassedNextTimeOmitted(t *testing.T) {
+	svc, sender := newScheduleService(t, YasnoStatusScheduleApplies)
+	now := time.Date(2026, 11, 7, 19, 44, 0, 0, svc.location)
+	svc.now = func() time.Time { return now }
+	// Power is on although the outage started at 17:30: next off time already passed
+	passedOff := time.Date(2026, 11, 7, 17, 30, 0, 0, svc.location)
+	events := []homeassistant.CalendarEvent{
+		outage("2026-11-07T07:30:00+02:00", "2026-11-07T15:00:00+02:00"),
+		outage("2026-11-07T17:30:00+02:00", "2026-11-08T00:00:00+02:00"),
+	}
+
+	if err := svc.NotifyEmergencyEnded(context.Background(), "off", &passedOff, events); err != nil {
+		t.Fatalf("NotifyEmergencyEnded: %v", err)
+	}
+
+	want := MsgYasnoEmergencyEnded + "\n\n🪫07:30 - 15:00\n🪫17:30 - 00:00"
+	if got := sender.sent[0].Text; got != want {
+		t.Errorf("message mismatch\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
+
 func TestNotifyScheduleChanged_NoOutagesToday(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -181,6 +202,9 @@ func TestFormatYasnoSchedule_OutagesCutToDay(t *testing.T) {
 }
 
 func TestScheduleFingerprint(t *testing.T) {
+	loc := mustKyiv(t)
+	day := time.Date(2026, 11, 2, 12, 0, 0, 0, loc)
+	fp := func(events []homeassistant.CalendarEvent) string { return ScheduleFingerprint(events, day, loc) }
 	a := []homeassistant.CalendarEvent{
 		outage("2026-11-02T08:30:00+02:00", "2026-11-02T15:30:00+02:00"),
 		outage("2026-11-02T00:00:00+02:00", "2026-11-02T03:30:00+02:00"),
@@ -188,14 +212,35 @@ func TestScheduleFingerprint(t *testing.T) {
 	}
 	reordered := []homeassistant.CalendarEvent{a[1], a[0]}
 	changed := []homeassistant.CalendarEvent{a[1], outage("2026-11-02T09:00:00+02:00", "2026-11-02T15:30:00+02:00")}
+	// Same outages of the day, but the night one starts the previous evening and the day one is split
+	reshaped := []homeassistant.CalendarEvent{
+		outage("2026-11-01T20:00:00+02:00", "2026-11-02T03:30:00+02:00"),
+		outage("2026-11-02T08:30:00+02:00", "2026-11-02T12:00:00+02:00"),
+		outage("2026-11-02T12:00:00+02:00", "2026-11-02T15:30:00+02:00"),
+	}
 
-	if ScheduleFingerprint(a) != ScheduleFingerprint(reordered) {
+	if fp(a) != fp(reordered) {
 		t.Error("fingerprint must ignore order and non-definite events")
 	}
-	if ScheduleFingerprint(a) == ScheduleFingerprint(changed) {
+	if fp(a) != fp(reshaped) {
+		t.Error("fingerprint must ignore changes outside the day and split outages")
+	}
+	if fp(a) == fp(changed) {
 		t.Error("fingerprint must change when an outage changes")
 	}
-	if ScheduleFingerprint(nil) == ScheduleFingerprint(a) {
+	if fp(nil) == fp(a) {
 		t.Error("empty schedule must differ from non-empty")
 	}
+	if !IsCurrentFingerprint(fp(a)) || IsCurrentFingerprint("0123456789abcdef") {
+		t.Error("IsCurrentFingerprint must tell current fingerprints from old ones")
+	}
+}
+
+func mustKyiv(t *testing.T) *time.Location {
+	t.Helper()
+	loc, err := time.LoadLocation("Europe/Kyiv")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	return loc
 }
