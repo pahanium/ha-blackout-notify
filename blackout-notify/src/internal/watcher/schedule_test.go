@@ -442,3 +442,31 @@ func TestReconcile_TomorrowPublishedExtendsTonightsOutage(t *testing.T) {
 		t.Errorf("want only tomorrow's schedule, got schedules=%v changed=%v", schedules, changed)
 	}
 }
+
+func TestReconcile_SensorCatchingUpWithSentScheduleNotAnnounced(t *testing.T) {
+	w, env := newScheduleWatcher(t, PowerStateOn)
+	today, _, todayKey, _ := scheduleDays(env)
+	now := time.Now()
+	newOff := now.Add(10 * time.Minute)
+	if !sameDay(newOff, now, env.notifier.loc) {
+		t.Skip("too close to midnight")
+	}
+	// Today's new schedule was already announced; the next off sensor updates later
+	oldOff := now.Add(5 * time.Hour)
+	w.lastNextOffTime = &oldOff
+	env.notifier.scheduled["sensor.next_off"] = &newOff
+	events := []homeassistant.CalendarEvent{definite(newOff.Format(time.RFC3339), newOff.Add(time.Hour).Format(time.RFC3339))}
+	env.notifier.events[todayKey] = events
+	env.log.sent[todayKey] = fingerprint(env, today, events)
+	env.states.set("sensor.yasno_today", notifications.YasnoStatusScheduleApplies)
+	env.states.set("sensor.yasno_tomorrow", notifications.YasnoStatusWaitingForSchedule)
+
+	reconcile(w)
+
+	if schedules, changed, _, _ := env.notifier.snapshot(); len(schedules)+len(changed) != 0 {
+		t.Errorf("schedule already announced: want no message, got schedules=%v changed=%v", schedules, changed)
+	}
+	if w.lastNextOffTime == nil || !w.lastNextOffTime.Equal(newOff) {
+		t.Errorf("new next off time must still be stored, got %v", w.lastNextOffTime)
+	}
+}
