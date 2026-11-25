@@ -188,7 +188,9 @@ func (w *Watcher) reconcileSchedule(ctx context.Context) {
 		} else if todayApplies {
 			w.markSent(ctx, now, todayFingerprint)
 		}
-	case changedType != "" && !emergencyNow:
+	// With today's schedule known, the message reflects the calendar: a next time change alone (e.g. the
+	// sensor catching up with an already announced schedule) is not news
+	case changedType != "" && !emergencyNow && (!todayApplies || w.isNewSchedule(ctx, now, todayFingerprint)):
 		if err := w.notifSvc.NotifyScheduleChanged(ctx, changedType, changedTime, todayEvents); err != nil {
 			slog.Error("Failed to send schedule change notification", "error", err)
 		} else if todayApplies {

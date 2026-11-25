@@ -188,12 +188,60 @@ func (s *Service) formatNextTime(scheduleType string, t *time.Time, now time.Tim
 	return fmt.Sprintf(format, formatDuration(t.Sub(now)), t.In(s.location).Format("15:04")) + "\n" + MsgScheduleSource
 }
 
+// scheduledNextTime returns the next on/off time consistent with today's outages, since the next
+// on/off sensors may lag behind the calendar or keep a time from the previous schedule.
+// todayEvents nil (schedule unknown) keeps sensorTime. Otherwise:
+//   - "off" (power on): nil if an outage should already be going on, else the next outage start today
+//   - "on" (power off): the end of the current outage (or one starting within 30 min), nil if none;
+//     an outage lasting until midnight may continue tomorrow, so a later sensorTime is kept then
+//   - with no outage left today, only a sensorTime on a later day is kept
+func (s *Service) scheduledNextTime(scheduleType string, sensorTime *time.Time, todayEvents []homeassistant.CalendarEvent, now time.Time) *time.Time {
+	if todayEvents == nil {
+		return sensorTime
+	}
+	now = now.In(s.location)
+	dayEnd := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, s.location).AddDate(0, 0, 1)
+	outages := mergeOutages(definiteOutages(todayEvents, s.location))
+
+	switch scheduleType {
+	case "off":
+		for _, o := range outages {
+			if !now.Before(o.Start) && now.Before(o.End) {
+				return nil
+			}
+			if o.Start.After(now) {
+				start := o.Start
+				return &start
+			}
+		}
+	case "on":
+		for _, o := range outages {
+			if !now.Before(o.Start.Add(-anomalyMargin)) && now.Before(o.End) {
+				if !o.End.Before(dayEnd) && sensorTime != nil && sensorTime.After(o.End) {
+					return sensorTime
+				}
+				end := o.End
+				return &end
+			}
+		}
+		return nil
+	default:
+		return sensorTime
+	}
+
+	if sensorTime != nil && !sensorTime.Before(dayEnd) {
+		return sensorTime
+	}
+	return nil
+}
+
 // buildScheduleUpdate renders a header, the next on/off time and today's outage intervals.
 // todayEvents nil means today's schedule is unknown; empty means it is known and has no outages.
 func (s *Service) buildScheduleUpdate(header, scheduleType string, nextTime *time.Time, todayEvents []homeassistant.CalendarEvent) string {
 	var sb strings.Builder
 	sb.WriteString(header)
 	now := s.now()
+	nextTime = s.scheduledNextTime(scheduleType, nextTime, todayEvents, now)
 	if next := s.formatNextTime(scheduleType, nextTime, now); next != "" {
 		sb.WriteString("\n\n" + next)
 	}
