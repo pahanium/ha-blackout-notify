@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.4] - 2026-11-25
+
+### Security
+- 🔒 **Go 1.26.11**: Fixes an HTTP/1 crash in `net/http` (GO-2026-6859). The minimum Go version in `go.mod` is raised, so builds with an older toolchain fail instead of shipping the vulnerable version
+- 🔒 **gorilla/websocket**: Updated to the upstream fix (no tagged release yet) that uses `crypto/rand` for WebSocket mask keys (GO-2026-6278); `golang.org/x/net` updated alongside
+
 ## [0.9.3] - 2026-11-25
 
 ### Fixed
