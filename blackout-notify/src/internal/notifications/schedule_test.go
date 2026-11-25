@@ -160,6 +160,61 @@ func TestNotifyEmergencyEnded_PassedNextTimeOmitted(t *testing.T) {
 	}
 }
 
+func TestScheduledNextTime(t *testing.T) {
+	svc, _ := newScheduleService(t, YasnoStatusScheduleApplies)
+	loc := svc.location
+	at := func(day, hour, minute int) *time.Time {
+		v := time.Date(2026, 11, day, hour, minute, 0, 0, loc)
+		return &v
+	}
+	now := *at(25, 11, 9)
+	moved := []homeassistant.CalendarEvent{outage("2026-11-25T10:30:00+02:00", "2026-11-25T16:30:00+02:00")}
+	later := []homeassistant.CalendarEvent{outage("2026-11-25T15:00:00+02:00", "2026-11-25T18:00:00+02:00")}
+	untilMidnight := []homeassistant.CalendarEvent{outage("2026-11-25T10:00:00+02:00", "2026-11-26T00:00:00+02:00")}
+
+	tests := []struct {
+		name   string
+		typ    string
+		sensor *time.Time
+		events []homeassistant.CalendarEvent
+		want   *time.Time
+	}{
+		{"schedule unknown keeps sensor", "off", at(25, 12, 0), nil, at(25, 12, 0)},
+		{"outage moved earlier, power still on", "off", at(25, 12, 0), moved, nil},
+		{"stale sensor, next outage from calendar", "off", at(25, 12, 0), later, at(25, 15, 0)},
+		{"no outages left, sensor tomorrow kept", "off", at(26, 8, 0), []homeassistant.CalendarEvent{}, at(26, 8, 0)},
+		{"no outages left, stale sensor today dropped", "off", at(25, 12, 0), []homeassistant.CalendarEvent{}, nil},
+		{"power off, end of current outage", "on", at(25, 12, 0), moved, at(25, 16, 30)},
+		{"power off until midnight, continues tomorrow", "on", at(26, 4, 0), untilMidnight, at(26, 4, 0)},
+		{"power off until midnight, sensor stale", "on", at(25, 12, 0), untilMidnight, at(26, 0, 0)},
+		{"power off outside schedule", "on", at(25, 18, 0), later, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := svc.scheduledNextTime(tt.typ, tt.sensor, tt.events, now)
+			if (got == nil) != (tt.want == nil) || (got != nil && !got.Equal(*tt.want)) {
+				t.Errorf("got %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNotifyScheduleChanged_OutageMovedEarlierWhilePowerOn(t *testing.T) {
+	svc, sender := newScheduleService(t, YasnoStatusScheduleApplies)
+	svc.now = func() time.Time { return time.Date(2026, 11, 25, 11, 9, 0, 0, svc.location) }
+	staleOff := time.Date(2026, 11, 25, 12, 0, 0, 0, svc.location)
+	events := []homeassistant.CalendarEvent{outage("2026-11-25T10:30:00+02:00", "2026-11-25T16:30:00+02:00")}
+
+	if err := svc.NotifyScheduleChanged(context.Background(), "off", &staleOff, events); err != nil {
+		t.Fatalf("NotifyScheduleChanged: %v", err)
+	}
+
+	want := MsgScheduleUpdate + "\n\n🪫10:30 - 16:30"
+	if got := sender.sent[0].Text; got != want {
+		t.Errorf("message mismatch\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
+
 func TestNotifyScheduleChanged_NoOutagesToday(t *testing.T) {
 	tests := []struct {
 		name   string

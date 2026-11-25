@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.3] - 2026-11-25
+
+### Fixed
+- 🔄 **Old next outage time in "Графік оновлено"**: When today's schedule changed (e.g. the outage moved from 12:00 to 10:30), the message showed the next on/off time from the sensor, which still had the old schedule. With today's schedule known, the time now comes from the same schedule as the intervals in the message: the next outage start or the end of the current outage. If the power is on although an outage should already be going on, the time is omitted. Same for "Аварійні відключення скасовані"
+- 🔄 **Extra "Графік оновлено" when the sensor catches up**: A next on/off time change is no longer announced on its own when today's schedule was already sent unchanged
+
 ## [0.9.2] - 2026-11-09
 
 ### Fixed
